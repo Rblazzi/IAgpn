@@ -1,5 +1,7 @@
 <section class="card-chat">
   <header class="card-topo">
+    <button type="button" class="btn-limpar" (click)="limparHistorico()" [disabled]="carregando() || mensagens().length < 2"
+            title="Apagar o histórico de conversas deste navegador">🗑 Limpar histórico</button>
     <h2>Assistente de Relatórios{{ municipioAtual() ? ' - ' + municipioAtual() : '' }}</h2>
     <p class="subtitulo">Peça em linguagem natural · relatórios em Word e PDF com os dados do TCESP</p>
 
@@ -11,6 +13,7 @@
       @if (menuAberto()) {
         <div class="menu-lista" role="menu">
           <button type="button" role="menuitem" (click)="novaConversa()" [disabled]="carregando()">Nova conversa</button>
+          <button type="button" role="menuitem" (click)="limparHistorico()" [disabled]="carregando()">Limpar histórico</button>
           @if (motor()) {
             <span class="menu-info">Motor: {{ motor() }}</span>
           }

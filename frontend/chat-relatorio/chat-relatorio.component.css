@@ -25,7 +25,7 @@
 /* ---- cabeçalho no padrão dos cards ("Arrecadação Mensal - Ano 2026") */
 .card-topo {
   position: relative;
-  padding: 12px 56px 10px;
+  padding: 12px 150px 10px;   /* espaço do botão "Limpar histórico" (esq.) e do menu (dir.) */
   text-align: center;
 }
 .card-topo h2 {
@@ -37,6 +37,13 @@
 .subtitulo { margin: 2px 0 0; font-size: 0.82rem; color: var(--suave); }
 
 .menu { position: absolute; top: 12px; right: 14px; }
+.btn-limpar {
+  position: absolute; top: 12px; left: 14px;
+  padding: 3px 8px; border: 1px solid var(--borda-campo); border-radius: 4px; background: #fff;
+  font: inherit; font-size: 0.78rem; color: var(--suave); cursor: pointer;
+}
+.btn-limpar:hover:not(:disabled) { border-color: #b02a37; color: #b02a37; background: #fff5f5; }
+.btn-limpar:disabled { opacity: 0.5; cursor: not-allowed; }
 .hamburguer {
   display: flex; flex-direction: column; justify-content: center; gap: 3px;
   width: 26px; height: 24px; padding: 3px; border: 0; background: none; cursor: pointer;
@@ -166,6 +173,7 @@ button.link { padding: 0; border: 0; background: none; font: inherit; font-size:
 
 @media (max-width: 600px) {
   .card-topo { padding: 10px 44px 8px; }
+  .btn-limpar { position: static; display: block; margin: 0 auto 6px; }
   .balao, .continuar { max-width: 94%; }
   .mensagens, .entrada { padding-left: 10px; padding-right: 10px; }
   .espera { min-width: 0; }

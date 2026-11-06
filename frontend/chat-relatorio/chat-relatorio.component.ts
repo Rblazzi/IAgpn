@@ -186,6 +186,17 @@ export class ChatRelatorioComponent implements OnDestroy {
     this.texto = '';
   }
 
+  /** Apaga as conversas salvas neste navegador (de todos os municípios) e começa uma nova. */
+  limparHistorico() {
+    this.menuAberto.set(false);
+    if (this.carregando()) return;
+    if (!confirm('Apagar o histórico de conversas deste navegador? Os relatórios já baixados não são afetados.')) return;
+    try {
+      Object.keys(localStorage).filter((k) => k.startsWith('chatRelatorio.conversa.')).forEach((k) => localStorage.removeItem(k));
+    } catch {}
+    this.novaConversa();
+  }
+
   // ---- conversa salva neste navegador (uma por município): continua depois de recarregar a página
   private chaveAtiva: string | null = null;
   private chaveConversa = computed(() => `chatRelatorio.conversa.${(this.municipioAtual() ?? 'geral').toLowerCase()}`);
