@@ -149,7 +149,7 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
         if (c.Titulos.Count > 0)
             sb.AppendLine("- Títulos do documento ATUAL, na ordem (use estes textos EXATOS em removerSecoes):\n" +
                           string.Join("\n", c.Titulos.Select(t => "    " + t)));
-        if (c.Anexos.Count > 0) sb.AppendLine($"- Usou {c.Anexos.Count} arquivo(s) anexado(s), que continuam disponíveis e vão junto deste pedido.");
+        if (c.Anexos.Count > 0) sb.AppendLine($"- Usou {c.Anexos.Count} arquivo(s) anexado(s) — eles só são usados de novo se o pedido for editar este documento.");
         return sb.ToString();
     }
 

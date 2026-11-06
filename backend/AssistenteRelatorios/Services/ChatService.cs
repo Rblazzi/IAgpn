@@ -89,12 +89,14 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
 
         // Continuidade: o relatório anterior da conversa (pedido, consultas, seções, anexos) vai para a IA
         var anterior = await CarregarContextoAsync(req.RelatorioAnterior, ct);
-        // Anexos deste pedido + os do relatório anterior (para alterar um relatório feito com arquivo, sem reenviar)
-        var idsAnexos = (req.Anexos ?? []).Concat(anterior?.Anexos ?? []).Distinct().ToList();
-        var anexos = await anexosSvc.CarregarAsync(idsAnexos, ct);
+        // Anexos: só os enviados NESTE pedido. Os de pedidos anteriores só voltam quando o pedido é editar o documento
+        // que foi feito com eles (um relatório novo ou uma pergunta não herdam a imagem/arquivo de antes)
+        var anexos = await anexosSvc.CarregarAsync(req.Anexos, ct);
         if (anexos.Count > 0) log.LogInformation("Anexos no pedido: {Anexos}", string.Join(", ", anexos.Select(a => a.Nome)));
 
         var (plano, modoLocal) = await ia.PlanejarAsync(req.Mensagem, historico, catalogo, selecionado, Valores, ct, anexos, anterior);
+        if (plano.Acao == "editar_relatorio" && anterior?.Anexos.Except(req.Anexos ?? []).ToList() is { Count: > 0 } antigos)
+            anexos.AddRange(await anexosSvc.CarregarAsync(antigos, ct));
         planoAtual = plano;
         // Municípios envolvidos: os citados no pedido (comparativo entre cidades) ou, se nenhum, o padrão da tela
         plano.Municipios = plano.Municipios.Append(plano.Municipio).Select(Valido).OfType<string>().Distinct().ToList();
@@ -204,7 +206,10 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 // Capa: um município, ou "A × B" no comparativo entre cidades
                 var municipio = string.Join(" × ", plano.Municipios);
                 etapa("Redigindo o relatório…");
-                var estrutura = await ia.RedigirConsultaAsync(req.Mensagem, plano, resultados, ct, notaProjecao, anexos, anterior)
+                // Estrutura do relatório anterior só quando o pedido REFAZ o mesmo relatório (reaproveita as consultas dele);
+                // um assunto novo não herda títulos nem textos do anterior
+                var refazendo = MesmoRelatorio(anterior, plano) ? anterior : null;
+                var estrutura = await ia.RedigirConsultaAsync(req.Mensagem, plano, resultados, ct, notaProjecao, anexos, refazendo)
                                 ?? EstruturaPadrao(plano, resultados);
                 sugestoesIa = estrutura.Sugestoes;
                 var avisos = resultados.Where(r => !r.Ok).Select(r => $"A consulta \"{r.Objetivo}\" não pôde ser executada.").ToList();
@@ -610,6 +615,14 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
             !System.Text.RegularExpressions.Regex.IsMatch(p, @"coloc|insir|inser|inclu|adicion|ponh|acrescent|anex|junt|mostr"))
             return [];
         return anexos.Where(a => a.Mime?.StartsWith("image/") == true && req.Anexos?.Contains(a.Id) == true).Select(a => a.Nome).ToList();
+    }
+
+    /// <summary>O plano refaz o relatório anterior? (reaproveita ao menos uma consulta dele, com o mesmo SQL)</summary>
+    static bool MesmoRelatorio(ContextoRelatorio? anterior, Plano plano)
+    {
+        static string N(string sql) => System.Text.RegularExpressions.Regex.Replace(sql, @"\s+", " ").Trim().TrimEnd(';').ToLowerInvariant();
+        var antigas = (anterior?.Plano?.Consultas ?? []).Select(c => N(c.Sql)).ToHashSet();
+        return antigas.Count > 0 && plano.Consultas.Any(c => antigas.Contains(N(c.Sql)));
     }
 
     /// <summary>O pedido fala de projeção/previsão/estimativa futura?</summary>
