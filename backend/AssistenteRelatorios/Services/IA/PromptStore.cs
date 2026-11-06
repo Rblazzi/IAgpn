@@ -6,6 +6,7 @@ namespace RelatorioIA.Api.Services.IA;
 /// </summary>
 public class PromptStore(IWebHostEnvironment env)
 {
+    public const string Identidade = "00-identidade.md";
     public const string Planejar = "01-planejar-consulta.md";
     public const string Redigir = "02-redigir-relatorio.md";
     public const string TextosGerencial = "03-textos-gerencial.md";

@@ -71,6 +71,13 @@ public class Plano
     public string? Assinatura { get; set; }
     /// <summary>editar_relatorio: títulos das seções do relatório atual a remover.</summary>
     public List<string> RemoverSecoes { get; set; } = [];
+    /// <summary>editar_relatorio: títulos das seções a ALTERAR (só elas mudam, no mesmo lugar; o resto fica igual).</summary>
+    public List<string> AlterarSecoes { get; set; } = [];
+    /// <summary>
+    /// Alterar seções: true SÓ quando o usuário pediu para trocar a tabela/gráfico/dados mostrados na seção. Senão as
+    /// tabelas e gráficos atuais são mantidos e as consultas novas servem apenas de base para o texto.
+    /// </summary>
+    public bool TrocarTabelas { get; set; }
 }
 
 public class ProjecaoPlanejada

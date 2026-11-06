@@ -75,6 +75,9 @@ Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
    **O usuário vai ajustando o MESMO documento** (acao `editar_relatorio`): o sistema reabre o documento salvo (JSON) e
    - "acrescente/adicione X (no final)": a IA consulta e escreve **só o conteúdo novo**, que entra como um capítulo antes da
      Conclusão (com tabelas e gráficos), e um parágrafo sobre o tema entra na Conclusão;
+   - "reescreva a conclusão", "no comentário de X destaque...", "mude a tabela de Y para...": altera **só aquela seção**, no
+     mesmo lugar. Pedido de texto mantém as tabelas e gráficos da seção (e cada parágrafo na mesma posição, sem criar
+     parágrafos novos); só "troque a tabela/os dados" refaz a tabela. O resto do documento fica idêntico;
    - "tire/remova a seção Y": remove a seção (até o próximo título do mesmo nível);
    - o arquivo mantém o mesmo nome; o restante do documento não é refeito.
    Um relatório novo só é gerado quando o usuário pede outro relatório ou muda a base (município, período do relatório).
@@ -88,6 +91,10 @@ Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
    tabela continua horizontal, em blocos de até 4 anos.
 13. **Sem IA** (Gemini fora do ar ou sem chave): o `AssistenteLocal` interpreta o pedido por regras (relatório gerencial,
    períodos e projeção com a consulta padrão do histórico) e usa textos e comentários padrão.
+
+**Postura da IA** (`Prompts/00-identidade.md`, incluído em todos os prompts): especialista em consulta e validação dos dados
+do TCESP; acata as solicitações do operador; nunca inventa números, nomes ou textos; tom profissional; pedidos fora do
+escopo recebem a resposta de que o assistente é exclusivo para finanças públicas municipais; alterações mudam só o pedido.
 
 Os prompts (`AssistenteRelatorios/Prompts/*.md`) são lidos a cada pedido, então uma edição vale na hora.
 

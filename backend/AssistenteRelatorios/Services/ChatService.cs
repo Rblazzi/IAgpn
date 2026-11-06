@@ -413,13 +413,23 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
             return Resp("Não encontrei o relatório desta conversa para alterar (ele pode ter expirado). Peça o relatório novamente.", "esclarecer", motor);
 
         var feito = new List<string>();
+        // Valores que já estão no documento: a IA pode citá-los numa edição sem gerar alerta de conferência
+        var numerosDoDocumento = MontadorConsulta.NumerosDoDocumento(doc);
         var removidas = MontadorConsulta.RemoverSecoes(doc, plano.RemoverSecoes);
         if (removidas.Count > 0) feito.Add($"• Removido: {string.Join("; ", removidas)}");
+
+        // Seções a ALTERAR que existem no documento (as demais ficam exatamente como estão)
+        var alterar = plano.AlterarSecoes.Where(t => MontadorConsulta.TrechoDaSecao(doc, t).inicio >= 0)
+            .Select(t => ((Titulo)doc.Blocos[MontadorConsulta.TrechoDaSecao(doc, t).inicio]).Texto).Distinct().ToList();
+        var naoAchadas = plano.AlterarSecoes.Where(t => MontadorConsulta.TrechoDaSecao(doc, t).inicio < 0).ToList();
+        if (naoAchadas.Count > 0 && alterar.Count == 0 && removidas.Count == 0 && plano.Consultas.Count == 0)
+            return Resp($"Não encontrei no relatório a seção \"{naoAchadas[0]}\". Seções do documento: " +
+                        string.Join("; ", MontadorConsulta.Titulos(doc).Select(t => t.Trim()).Where(t => t != "Conclusão").Take(25)) + ".", "esclarecer", motor);
 
         List<ConsultaExecutada>? executadas = null;
         ContextoRelatorio? acrescimo = null;
         var anexosNovos = anexos.Where(a => req.Anexos?.Contains(a.Id) == true).ToList();
-        if (plano.Consultas.Count > 0 || anexosNovos.Count > 0)
+        if (alterar.Count > 0 || plano.Consultas.Count > 0 || anexosNovos.Count > 0)
         {
             var resultados = new List<ResultadoConsulta>();
             if (plano.Consultas.Count > 0)
@@ -433,29 +443,80 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 log.LogInformation("SQL {Id} ({Linhas} linhas{Erro}) — edição \"{Pedido}\": {Sql}", c.Id, c.Linhas,
                     c.Erro is null ? "" : ", erro: " + c.Erro, req.Mensagem, c.Sql);
             if (resultados.Count > 0 && resultados.All(r => !r.Ok) && anexosNovos.Count == 0)
-                return Resp("Não consegui consultar o banco para o conteúdo a acrescentar. Tente detalhar o tema e o período.", "erro", motor, executadas);
+                return Resp("Não consegui consultar o banco para essa alteração. Tente detalhar o tema e o período.", "erro", motor, executadas);
+            var comDadosNovos = resultados.Any(r => r.Ok) || anexosNovos.Count > 0;
+            // Alterar: tabelas/gráficos da seção só são refeitos se o usuário pediu para trocar a tabela/os dados
+            var trocarTabelas = alterar.Count > 0 && plano.TrocarTabelas && comDadosNovos;
 
-            etapa("Redigindo o conteúdo a acrescentar…");
-            var estrutura = await ia.RedigirConsultaAsync(req.Mensagem, plano, resultados, ct, null, anexosNovos, anterior, acrescentar: true)
-                            ?? EstruturaPadrao(plano, resultados);
+            string instrucao;
+            if (alterar.Count > 0)
+            {
+                // A IA recebe o texto ATUAL de cada seção e reescreve só o que foi pedido
+                instrucao = "MODO ALTERAR SEÇÕES: o documento JÁ EXISTE e só as seções abaixo podem mudar. Aplique SOMENTE o que o " +
+                    "usuário pediu e mantenha o restante do texto dessas seções igual (mesmas frases e números que não precisam mudar). " +
+                    "Cada parágrafo atual vem marcado com a posição: devolva os marcados [textoAntes] em `textoAntes` e os marcados " +
+                    "[textoDepois] em `textoDepois` (não mude textos de posição). NÃO crie parágrafos novos que não foram pedidos " +
+                    "(se não havia texto numa posição, deixe-a vazia). " +
+                    $"Devolva `secoes` com exatamente {alterar.Count} seção(ões), na mesma ordem abaixo, cada uma com `titulo` (o mesmo, " +
+                    "salvo se o usuário pediu outro), `textoAntes` e `textoDepois`" +
+                    (trocarTabelas
+                        ? ", e `tabela`/`grafico` (ou `tabelaAnexo`/`imagemAnexo`) com os dados novos, pois o usuário pediu para trocar a tabela/os dados."
+                        : ". As tabelas, gráficos e imagens atuais da seção são mantidos pelo sistema: NÃO crie tabela nem gráfico" +
+                          (comDadosNovos ? "; use os resultados das consultas só como base para o texto." : ".")) +
+                    " Para a seção \"Conclusão\", coloque o texto completo dela em `textoAntes`. `introducao` e `conclusao` vazias.\n\n" +
+                    string.Join("\n\n", alterar.Select((t, k) => $"=== SEÇÃO {k + 1}: {t} — conteúdo atual ===\n{MontadorConsulta.DescreverSecao(doc, t)}"));
+                etapa("Alterando as seções pedidas…");
+            }
+            else
+            {
+                instrucao = "MODO ACRESCENTAR: o relatório JÁ EXISTE e NÃO deve ser reescrito. Escreva SOMENTE o conteúdo novo pedido agora, " +
+                    "que entra como um capítulo novo antes da Conclusão: `titulo` = nome do novo tema (ex.: \"Gastos com Combustíveis\"); " +
+                    "`subtitulo` vazio; `introducao` = 1 parágrafo apresentando o tema; `secoes` = só as seções novas (não repita as " +
+                    "existentes); `conclusao` = 1 parágrafo curto sobre o novo tema (é acrescentado à conclusão do relatório).\n" +
+                    "Títulos que o documento já tem: " + string.Join(" | ", MontadorConsulta.Titulos(doc).Select(t => t.Trim()));
+                etapa("Redigindo o conteúdo a acrescentar…");
+            }
+            var estrutura = await ia.RedigirConsultaAsync(req.Mensagem, plano, resultados, ct, null, anexosNovos, anterior, instrucao);
+            if (estrutura is null && alterar.Count > 0)
+                return Resp("A IA não respondeu a tempo para alterar o relatório. Tente de novo em instantes; o documento atual continua como estava.", "erro", motor, executadas);
+            estrutura ??= EstruturaPadrao(plano, resultados);
             sugestoesIa = estrutura.Sugestoes;
             var avisos = resultados.Where(r => !r.Ok).Select(r => $"A consulta \"{r.Objetivo}\" não pôde ser executada.").ToList();
             var (parte, naoConferidos) = consulta.Montar(estrutura, plano, resultados, doc.Municipio, avisos, null, anexosNovos,
                 ImagensPedidas(req, anexosNovos));
-            MontadorConsulta.Acrescentar(doc, parte);
-            feito.Add($"• Acrescentado: **{estrutura.Titulo}** ({Plural(estrutura.Secoes.Count, "seção", "seções")}, " +
-                      $"{Plural(parte.Blocos.OfType<TabelaDoc>().Count(), "tabela", "tabelas")} e " +
-                      $"{Plural(parte.Blocos.OfType<GraficoDoc>().Count(), "gráfico", "gráficos")}), antes da Conclusão");
+
+            if (alterar.Count > 0)
+            {
+                var conteudos = trocarTabelas ? MontadorConsulta.ConteudoDasSecoes(parte) : null;
+                for (int k = 0; k < alterar.Count && k < estrutura.Secoes.Count; k++)
+                {
+                    var blocos = conteudos?.ElementAtOrDefault(k);
+                    // Só refaz tabelas/gráficos se a seção nova trouxe algum; senão mantém os atuais e troca só o texto
+                    if (blocos is not null && !blocos.Any(b => b is TabelaDoc or GraficoDoc)) blocos = null;
+                    if (MontadorConsulta.AlterarSecao(doc, alterar[k], estrutura.Secoes[k], blocos))
+                        feito.Add($"• Alterado: {alterar[k]}" + (blocos is null ? " (texto; tabelas e gráficos mantidos)" : " (com os dados atualizados)"));
+                }
+                if (naoAchadas.Count > 0) feito.Add($"⚠ Não encontrei a(s) seção(ões): {string.Join("; ", naoAchadas)}.");
+                acrescimo = new ContextoRelatorio { Pedido = req.Mensagem, Tipo = "alteracao", Titulo = "Alteração: " + string.Join("; ", alterar), Plano = plano };
+            }
+            else
+            {
+                MontadorConsulta.Acrescentar(doc, parte);
+                feito.Add($"• Acrescentado: **{estrutura.Titulo}** ({Plural(estrutura.Secoes.Count, "seção", "seções")}, " +
+                          $"{Plural(parte.Blocos.OfType<TabelaDoc>().Count(), "tabela", "tabelas")} e " +
+                          $"{Plural(parte.Blocos.OfType<GraficoDoc>().Count(), "gráfico", "gráficos")}), antes da Conclusão");
+                acrescimo = new ContextoRelatorio { Pedido = req.Mensagem, Tipo = "consulta", Titulo = estrutura.Titulo, Plano = plano, Estrutura = estrutura };
+            }
+            naoConferidos = naoConferidos.Where(v => !numerosDoDocumento.Contains(v)).ToList();
             if (naoConferidos.Count > 0)
                 feito.Add($"⚠ Confira no documento estes valores, que não aparecem diretamente nas consultas nem no arquivo anexado: {string.Join("; ", naoConferidos.Select(v => "R$ " + v))}.");
             if (anexosNovos.Count > 0) feito.Add($"• Arquivo(s) considerado(s): {string.Join(", ", anexosNovos.Select(a => a.Nome))}");
-            acrescimo = new ContextoRelatorio { Pedido = req.Mensagem, Tipo = "consulta", Titulo = estrutura.Titulo, Plano = plano, Estrutura = estrutura };
         }
         if (plano.Assinatura is { } quem) { doc.TrocarAssinatura(quem); feito.Add($"• Assinatura na última página: {quem}"); }
 
         if (feito.Count == 0)
             return Resp("Não identifiquei o que alterar no relatório atual. Diga, por exemplo: \"acrescente os gastos com combustível " +
-                        "no final\" ou \"tire a seção de rubricas\".", "esclarecer", motor);
+                        "no final\", \"reescreva a conclusão de forma mais objetiva\" ou \"tire a seção de rubricas\".", "esclarecer", motor);
 
         etapa("Gerando os arquivos Word e PDF…");
         var rel = await SalvarAsync(doc, nome, ct);

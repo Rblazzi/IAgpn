@@ -274,6 +274,131 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
         return removidos;
     }
 
+    static string Normalizar(string s) => new string(s.Normalize(System.Text.NormalizationForm.FormD)
+        .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+        .ToArray()).Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// Trecho PRÓPRIO de uma seção: do título até o próximo título de qualquer nível (subseções ficam de fora).
+    /// "Conclusão": só os parágrafos escritos, sem o parágrafo fixo e o encerramento. (-1, -1) se não achar.
+    /// </summary>
+    public static (int inicio, int fim) TrechoDaSecao(Documento d, string titulo)
+    {
+        var alvo = Normalizar(titulo);
+        var i = d.Blocos.FindIndex(b => b is Titulo t && Normalizar(t.Texto) == alvo);
+        if (i < 0) i = d.Blocos.FindIndex(b => b is Titulo t && Normalizar(t.Texto).Contains(alvo));
+        if (i < 0) return (-1, -1);
+        if (i == IndiceConclusao(d))
+        {
+            var fixo = d.Blocos.FindIndex(i, b => b is Paragrafo p && p.Texto == MontadorGerencial.ParagrafoQuantitativo);
+            return (i, fixo < 0 ? i + 1 : fixo);
+        }
+        var fim = d.Blocos.FindIndex(i + 1, b => b is Titulo);
+        return (i, fim < 0 ? d.Blocos.Count : fim);
+    }
+
+    /// <summary>Conteúdo atual da seção em texto (parágrafos e marcas de tabela/gráfico) — vai para a IA ao alterar.</summary>
+    public static string DescreverSecao(Documento d, string titulo)
+    {
+        var (ini, fim) = TrechoDaSecao(d, titulo);
+        if (ini < 0) return "";
+        // Cada parágrafo marcado com a posição (antes/depois das tabelas), para a IA devolver cada texto no mesmo lugar
+        var trecho = d.Blocos.Skip(ini).Take(fim - ini).ToList();
+        var iPrimeiraTabela = trecho.FindIndex(b => b is TabelaDoc or GraficoDoc);
+        return string.Join("\n", trecho.Select((b, k) => b switch
+        {
+            Titulo t => $"[TÍTULO] {t.Texto}",
+            Paragrafo p when iPrimeiraTabela < 0 || k < iPrimeiraTabela => "[textoAntes] " + p.Texto,
+            Paragrafo p => "[textoDepois] " + p.Texto,
+            TabelaDoc tb => $"[TABELA] {tb.Titulo ?? "(continuação)"} — colunas: {string.Join(" | ", tb.Cabecalho ?? [])}; {tb.Linhas.Count} linhas",
+            GraficoDoc g => $"[GRÁFICO/IMAGEM] {g.Titulo}",
+            _ => ""
+        }).Where(x => x.Length > 0));
+    }
+
+    /// <summary>
+    /// Troca SÓ o trecho próprio da seção, no mesmo lugar (o resto do documento não muda).
+    /// <paramref name="blocosNovos"/> (conteúdo refeito com dados novos) substitui tudo após o título;
+    /// sem ele, só os TEXTOS mudam: tabelas, gráficos e imagens da seção são mantidos (texto antes deles e texto
+    /// depois das tabelas). Na Conclusão, troca só os parágrafos escritos. Devolve false se a seção não existir.
+    /// </summary>
+    public static bool AlterarSecao(Documento d, string titulo, SecaoRelatorio nova, List<Bloco>? blocosNovos = null)
+    {
+        var (ini, fim) = TrechoDaSecao(d, titulo);
+        if (ini < 0) return false;
+        List<Bloco> Paragrafos(string? texto) { var tmp = new Documento { Titulo = "", Municipio = "" }; tmp.Textos(texto); return tmp.Blocos; }
+
+        var antigo = (Titulo)d.Blocos[ini];
+        var lista = new List<Bloco>();
+        if (ini == IndiceConclusao(d))
+            lista.AddRange(Paragrafos(string.Join("\n\n", new[] { nova.TextoAntes, nova.TextoDepois }.Where(t => !string.IsNullOrWhiteSpace(t)))));
+        else if (blocosNovos is not null)
+        {
+            // Dados novos: entra o conteúdo refeito, mas sem texto antes da tabela se a seção não tinha (mesmo layout)
+            var trechoAtual = d.Blocos.Skip(ini + 1).Take(fim - ini - 1).ToList();
+            var tinhaTextoAntes = trechoAtual.TakeWhile(b => b is Paragrafo).Any() && trechoAtual.Any(b => b is not Paragrafo);
+            lista.AddRange(tinhaTextoAntes || !blocosNovos.Any(b => b is not Paragrafo)
+                ? blocosNovos : blocosNovos.SkipWhile(b => b is Paragrafo));
+        }
+        else
+        {
+            var trecho = d.Blocos.Skip(ini + 1).Take(fim - ini - 1).ToList();
+            var naoTexto = trecho.Where(b => b is not Paragrafo).ToList();
+            var iGrafico = naoTexto.FindLastIndex(b => b is TabelaDoc) + 1;   // texto "depois" vem após a última tabela
+            // Cada texto volta para a MESMA posição que tinha: se a seção não tinha texto antes das tabelas e a IA pôs
+            // tudo em textoAntes, ele vai para depois (onde estava) — o layout não muda
+            var primeiro = trecho.FindIndex(b => b is not Paragrafo);
+            var tinhaAntes = primeiro != 0 && trecho.Take(primeiro < 0 ? trecho.Count : primeiro).Any(b => b is Paragrafo);
+            var tinhaDepois = primeiro >= 0 && trecho.Skip(primeiro).Any(b => b is Paragrafo);
+            var (textoAntes, textoDepois) = (nova.TextoAntes, nova.TextoDepois);
+            if (naoTexto.Count > 0 && !tinhaAntes && tinhaDepois && string.IsNullOrWhiteSpace(textoDepois))
+                (textoAntes, textoDepois) = ("", textoAntes);
+            else if (naoTexto.Count > 0 && tinhaAntes && !tinhaDepois && string.IsNullOrWhiteSpace(textoAntes))
+                (textoAntes, textoDepois) = (textoDepois, "");
+            // Alteração não cria parágrafo onde não havia texto (evita introduções/comentários que ninguém pediu)
+            if (naoTexto.Count > 0 && !tinhaAntes && !string.IsNullOrWhiteSpace(textoDepois)) textoAntes = "";
+            if (naoTexto.Count > 0 && !tinhaDepois && tinhaAntes && !string.IsNullOrWhiteSpace(textoAntes)) textoDepois = "";
+            lista.AddRange(Paragrafos(textoAntes));
+            lista.AddRange(naoTexto.Take(iGrafico));
+            lista.AddRange(Paragrafos(textoDepois));
+            lista.AddRange(naoTexto.Skip(iGrafico));
+        }
+        d.Blocos.RemoveRange(ini + 1, fim - ini - 1);
+        d.Blocos.InsertRange(ini + 1, lista);
+        // Novo título só se a IA renomeou de fato (mantém o nível do original)
+        if (!string.IsNullOrWhiteSpace(nova.Titulo) && Normalizar(nova.Titulo) != Normalizar(antigo.Texto) && ini != IndiceConclusao(d))
+            d.Blocos[ini] = antigo with { Texto = nova.Titulo.Trim() };
+        return true;
+    }
+
+    /// <summary>Blocos do conteúdo de cada seção de um documento montado só com as seções alteradas (sem o título T2).</summary>
+    public static List<List<Bloco>> ConteudoDasSecoes(Documento parte)
+    {
+        var lista = new List<List<Bloco>>();
+        var fim = IndiceConclusao(parte);
+        if (fim < 0) fim = parte.Blocos.Count;
+        for (int i = 0; i < fim; i++)
+        {
+            if (parte.Blocos[i] is not Titulo { Nivel: 2 }) continue;
+            var prox = parte.Blocos.FindIndex(i + 1, b => b is Titulo { Nivel: <= 2 } || b is Titulo { Nivel: 1 });
+            if (prox < 0 || prox > fim) prox = fim;
+            lista.Add(parte.Blocos.Skip(i + 1).Take(prox - i - 1).ToList());
+        }
+        return lista;
+    }
+
+    /// <summary>Valores (formato 1.234,56) que já estão no documento — tabelas e textos. Citá-los numa edição não gera alerta.</summary>
+    public static HashSet<string> NumerosDoDocumento(Documento d)
+    {
+        var textos = d.Blocos.SelectMany(b => b switch
+        {
+            TabelaDoc t => t.Linhas.SelectMany(l => l),
+            Paragrafo p => [p.Texto],
+            _ => Enumerable.Empty<string>()
+        });
+        return textos.SelectMany(t => RegexNumeroBr().Matches(t).Select(m => m.Value)).ToHashSet();
+    }
+
     /// <summary>Títulos do documento na ordem, com recuo por nível (vão no contexto para a IA editar).</summary>
     public static List<string> Titulos(Documento d) =>
         d.Blocos.OfType<Titulo>().Select(t => new string(' ', (t.Nivel - 1) * 2) + t.Texto).ToList();
