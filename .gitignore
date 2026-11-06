@@ -1,22 +1,24 @@
 # Build
 **/bin/
 **/obj/
-tests/TestResults/
+**/TestResults/
 
-# Segredos (senha do banco e chave do Gemini) — usar backend/appsettings.example.json como modelo
-backend/appsettings.json
-backend/appsettings.*.local.json
+# Segredos (senha do banco e chave do Gemini) — modelo em backend/appsettings.example.json
+**/appsettings.json
+**/appsettings.*.local.json
 .env
 
-# Arquivos gerados em execução (relatórios, brasões baixados, front compilado)
-backend/relatorios/
-backend/brasoes/
-backend/wwwroot/
+# Gerados em execução da demonstração (relatórios, brasões baixados, tela compilada)
+demo/api/relatorios/
+demo/api/brasoes/
+demo/api/wwwroot/
 
-# Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.angular/
+# Demonstração Angular
+demo/web/node_modules/
+demo/web/dist/
+demo/web/.angular/
+# atalho (junction) para frontend/chat-relatorio, criado pelo vincular-tela.js
+demo/web/src/app/chat-relatorio
 
 # IDE / sistema
 .vs/

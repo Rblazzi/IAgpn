@@ -45,6 +45,7 @@
               "zone.js"
             ],
             "tsConfig": "tsconfig.app.json",
+            "preserveSymlinks": true,
             "assets": [
               {
                 "glob": "**/*",

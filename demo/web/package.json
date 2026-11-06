@@ -3,7 +3,10 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
+    "vincular": "node vincular-tela.js",
+    "prestart": "node vincular-tela.js",
     "start": "ng serve --host 0.0.0.0",
+    "prebuild": "node vincular-tela.js",
     "build": "ng build"
   },
   "private": true,

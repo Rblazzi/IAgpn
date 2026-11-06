@@ -9,7 +9,7 @@ namespace RelatorioIA.Tests;
 
 /// <summary>
 /// Testes de INTEGRAÇÃO contra o banco real do painel (Tcudb, SQL Server, usuário somente leitura).
-/// A connection string vem de ConnectionStrings:Tcudb no backend/appsettings.json (ou da variável TCUDB).
+/// A connection string vem de ConnectionStrings:Tcudb no demo/api/appsettings.json (ou da variável TCUDB).
 /// Gabarito: "Águas da Prata Relatório Gerencial - 26-08-2026.pdf" (dados de 2025 e 2026 do TCESP).
 /// </summary>
 public sealed class BancoFixture
@@ -36,9 +36,9 @@ public sealed class BancoFixture
     {
         if (Environment.GetEnvironmentVariable("TCUDB") is { Length: > 0 } env) return env;
         var d = new DirectoryInfo(AppContext.BaseDirectory);
-        while (d != null && !File.Exists(Path.Combine(d.FullName, "backend", "appsettings.json"))) d = d.Parent;
-        if (d == null) throw new InvalidOperationException("backend/appsettings.json não encontrado");
-        using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(d.FullName, "backend", "appsettings.json")));
+        while (d != null && !File.Exists(Path.Combine(d.FullName, "demo", "api", "appsettings.json"))) d = d.Parent;
+        if (d == null) throw new InvalidOperationException("demo/api/appsettings.json não encontrado");
+        using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(d.FullName, "demo", "api", "appsettings.json")));
         return json.RootElement.GetProperty("ConnectionStrings").GetProperty("Tcudb").GetString()
                ?? throw new InvalidOperationException("ConnectionStrings:Tcudb não configurada");
     }

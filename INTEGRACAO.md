@@ -7,10 +7,9 @@ não roda migrations e só **lê** o banco.
 | Parte | Copiar | Para |
 |---|---|---|
 | Back-end | `backend/AssistenteRelatorios/` (sem `bin/` e `obj/`) | ao lado do projeto da API do painel, na mesma solução |
-| Front-end | `frontend/src/app/chat-relatorio/` | dentro de `src/app/` do Angular do painel |
+| Front-end | `frontend/chat-relatorio/` | dentro do módulo Angular onde fica a tela nova (qualquer pasta de `src/app/`) |
 
-O resto do repositório (`backend/Program.cs`, `backend/RelatorioIA.Api.csproj`, a casca do `frontend/` e `tests/`)
-é só para demonstração e testes: **não vai para o painel**.
+A pasta `demo/` (API e Angular de demonstração e os testes) é só para rodar e testar aqui: **não vai para o painel**.
 
 ---
 
@@ -70,10 +69,13 @@ Se o painel já tem a string de conexão do Tcudb com outro nome, basta repetir 
 
 ## 2. Front-end (Angular do painel)
 
-**2.1 Endereço da API** — uma linha no `app.config.ts` do painel:
+**2.1 Colar a pasta** `frontend/chat-relatorio/` dentro do módulo da tela nova (ex.: `src/app/pages/relatorios/chat-relatorio/`).
+Ela não depende de nada do painel além do Angular e do `HttpClient` — funciona em qualquer pasta.
+
+**2.2 Endereço da API** — uma linha no `app.config.ts` do painel (ajuste o caminho do import para onde a pasta ficou):
 
 ```ts
-import { CHAT_RELATORIO_API_URL } from './chat-relatorio';
+import { CHAT_RELATORIO_API_URL } from './pages/relatorios/chat-relatorio';
 import { environment } from '../environments/environment';
 
 providers: [
@@ -84,12 +86,12 @@ providers: [
 
 As chamadas usam o `HttpClient` do painel, então o **interceptor de token** do painel é aplicado normalmente.
 
-**2.2 Colocar o chat na tela nova** — escolha uma das formas:
+**2.3 Colocar o chat na tela nova** — escolha uma das formas:
 
 **a) Dentro da tela que vocês estão criando** (o componente da tela importa o chat):
 
 ```ts
-import { ChatRelatorioComponent } from '../chat-relatorio';   // ajuste o caminho relativo
+import { ChatRelatorioComponent } from './chat-relatorio';   // a pasta colada ao lado da tela
 
 @Component({
   // ...
@@ -105,7 +107,7 @@ import { ChatRelatorioComponent } from '../chat-relatorio';   // ajuste o caminh
 **b) Como uma rota própria** (tela pronta, chat na página inteira):
 
 ```ts
-{ path: 'relatorios-ia', loadComponent: () => import('./chat-relatorio').then(m => m.PaginaRelatoriosIaComponent) }
+{ path: 'relatorios-ia', loadComponent: () => import('./pages/relatorios/chat-relatorio').then(m => m.PaginaRelatoriosIaComponent) }
 ```
 
 Sobre o `[municipio]`:

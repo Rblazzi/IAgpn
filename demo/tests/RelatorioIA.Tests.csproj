@@ -19,7 +19,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\backend\RelatorioIA.Api.csproj" />
+    <!-- A API de demonstração já traz o módulo (backend/AssistenteRelatorios) -->
+    <ProjectReference Include="..\api\RelatorioIA.Api.csproj" />
   </ItemGroup>
 
 </Project>
