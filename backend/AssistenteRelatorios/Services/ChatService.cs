@@ -218,7 +218,21 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 var (doc, naoConferidos) = consulta.Montar(estrutura, plano, resultados, municipio, avisos, notaProjecao, anexos,
                     ImagensPedidas(req, anexos));
                 if (naoConferidos.Count > 0)
+                {
                     log.LogWarning("Valores citados pela IA não encontrados nos resultados: {Valores}", string.Join(", ", naoConferidos));
+                    // Correção automática (1 tentativa): a IA reescreve citando só valores que existem nos dados; fica a
+                    // versão com menos valores sem conferência (o aviso continua se algum ainda não bater)
+                    etapa("Conferindo os valores citados…");
+                    var correcao = $"{req.Mensagem}\n\nCORREÇÃO OBRIGATÓRIA: na versão anterior você citou valores que NÃO existem nos " +
+                        $"resultados: {string.Join("; ", naoConferidos.Select(v => "R$ " + v))}. Reescreva o relatório citando SOMENTE " +
+                        "valores copiados exatamente dos resultados (ou do arquivo anexado); não arredonde nem calcule valores novos em R$.";
+                    if (await ia.RedigirConsultaAsync(correcao, plano, resultados, ct, notaProjecao, anexos, refazendo) is { } corrigida)
+                    {
+                        var (doc2, nao2) = consulta.Montar(corrigida, plano, resultados, municipio, avisos, notaProjecao, anexos, ImagensPedidas(req, anexos));
+                        log.LogInformation("Correção automática: {Antes} → {Depois} valor(es) sem conferência", naoConferidos.Count, nao2.Count);
+                        if (nao2.Count < naoConferidos.Count) (doc, naoConferidos, estrutura) = (doc2, nao2, corrigida);
+                    }
+                }
 
                 etapa("Gerando os arquivos Word e PDF…");
                 await IncluirBrasoesAsync(doc, plano.Municipios, ct);
@@ -581,6 +595,16 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
             arquivos.Add(new("pdf", $"api/relatorios/{id}?formato=pdf", bPdf.Length));
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "Falha ao gerar o PDF; apenas o Word foi gerado"); }
+        // Excel com as tabelas (uma por aba), para o usuário trabalhar os números
+        try
+        {
+            if (RenderizadorXlsx.Renderizar(doc) is { } bXlsx)
+            {
+                await File.WriteAllBytesAsync(Path.Combine(PastaRelatorios, $"{id}__{nome}.xlsx"), bXlsx, ct);
+                arquivos.Add(new("xlsx", $"api/relatorios/{id}?formato=xlsx", bXlsx.Length));
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "Falha ao gerar o Excel; Word e PDF foram gerados"); }
         // Documento em JSON (não é baixado): permite alterar depois sem refazer (ex.: trocar a assinatura)
         await File.WriteAllTextAsync(Path.Combine(PastaRelatorios, $"{id}__{nome}.json"), System.Text.Json.JsonSerializer.Serialize(doc, JsonDoc), ct);
         log.LogInformation("Arquivos gerados em {Total:0.00}s (Word {Docx:0.00}s, PDF {Pdf:0.00}s, em paralelo)", sw.Elapsed.TotalSeconds, sDocx, sPdf);

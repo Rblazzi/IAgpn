@@ -27,7 +27,7 @@ export interface Disponibilidade {
 }
 
 export interface ArquivoGerado {
-  formato: 'docx' | 'pdf';
+  formato: 'docx' | 'pdf' | 'xlsx';
   url: string;
   tamanho: number;
 }
@@ -125,7 +125,7 @@ export class ChatRelatorioService {
   }
 
   /** Baixa como blob (passa pelos interceptors de autenticação do painel). */
-  baixar(id: string, formato: 'docx' | 'pdf'): Observable<Blob> {
+  baixar(id: string, formato: 'docx' | 'pdf' | 'xlsx'): Observable<Blob> {
     return this.http.get(`${this.baseUrl}${ChatRelatorioService.RELATORIOS}${id}`, {
       params: { formato },
       responseType: 'blob',

@@ -92,6 +92,15 @@ Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
 13. **Sem IA** (Gemini fora do ar ou sem chave): o `AssistenteLocal` interpreta o pedido por regras (relatório gerencial,
    períodos e projeção com a consulta padrão do histórico) e usa textos e comentários padrão.
 
+**Recursos de uso:**
+- **Documento ao lado do chat:** o PDF do último relatório aparece à direita e se atualiza a cada ajuste ("Visualizar ao
+  lado" em cada versão; em telas estreitas abre em nova aba).
+- **Excel:** cada relatório também gera um .xlsx com as tabelas (uma aba por tabela, blocos de meses/anos juntos numa aba),
+  com R$ e % como números de verdade.
+- **Cores nas tabelas:** colunas de variação/diferença em verde (alta) e vermelho (queda), no Word e no PDF.
+- **Correção automática:** se o texto da IA citar um valor em R$ que não está nos dados, o sistema pede uma vez que ela
+  reescreva com os valores corretos; se ainda sobrar algum, o aviso "Confira…" continua.
+
 **Postura da IA** (`Prompts/00-identidade.md`, incluído em todos os prompts): especialista em consulta e validação dos dados
 do TCESP; acata as solicitações do operador; nunca inventa números, nomes ou textos; tom profissional; pedidos fora do
 escopo recebem a resposta de que o assistente é exclusivo para finanças públicas municipais; alterações mudam só o pedido.

@@ -45,7 +45,7 @@ public class ChatController(ChatService chat, JobsChat jobs) : ControllerBase
 [Route("api/relatorios")]
 public class RelatoriosController(ChatService chat) : ControllerBase
 {
-    /// <summary>Download do relatório: ?formato=docx (padrão) ou ?formato=pdf</summary>
+    /// <summary>Download do relatório: ?formato=docx (padrão), ?formato=pdf ou ?formato=xlsx (tabelas)</summary>
     [HttpGet("{id:regex(^[[a-f0-9]]{{12}}$)}")]
     public IActionResult Baixar(string id, [FromQuery] string formato = "docx")
     {
@@ -53,9 +53,10 @@ public class RelatoriosController(ChatService chat) : ControllerBase
         {
             "pdf" => ("pdf", "application/pdf"),
             "docx" => ("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            "xlsx" => ("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             _ => (null, null)
         };
-        if (ext == null) return BadRequest("Formato inválido (use docx ou pdf).");
+        if (ext == null) return BadRequest("Formato inválido (use docx, pdf ou xlsx).");
         if (!Directory.Exists(chat.PastaRelatorios)) return NotFound();
         var arquivo = Directory.GetFiles(chat.PastaRelatorios, $"{id}__*.{ext}").FirstOrDefault();
         if (arquivo == null) return NotFound();

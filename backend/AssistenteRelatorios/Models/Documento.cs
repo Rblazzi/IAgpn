@@ -82,6 +82,18 @@ public record TabelaDoc : Bloco
     public bool CentralizarPrimeira { get; init; }
     public double Fonte { get; init; } = 8.5;
     public string? Nota { get; init; }
+    /// <summary>Colunas de variação/diferença: negativo em vermelho, positivo em verde (formatação condicional).</summary>
+    public int[]? ColunasVariacao { get; init; }
+
+    /// <summary>Cor do valor da célula: "C62828" (queda), "2E7D32" (alta) ou null (sem destaque).</summary>
+    public string? CorCelula(int coluna, string texto)
+    {
+        if (ColunasVariacao is null || !ColunasVariacao.Contains(coluna)) return null;
+        var t = texto.Trim();
+        if (t.Length == 0 || t is "-" or "***" || !t.Any(char.IsDigit)) return null;
+        if (t.StartsWith('-') || t.StartsWith("R$ (") || t.StartsWith('(')) return "C62828";
+        return t.Any(c => c is >= '1' and <= '9') ? "2E7D32" : null;   // 0,00% fica neutro
+    }
 
     public bool Negrito(int i) => i >= Linhas.Count - NegritoUltimas || (LinhasNegrito?.Contains(i) ?? false);
 }

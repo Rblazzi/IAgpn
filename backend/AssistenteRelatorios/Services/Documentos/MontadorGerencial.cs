@@ -285,7 +285,7 @@ public class MontadorGerencial(IOptions<RelatorioOptions> opt)
             doc.Tab(new TabelaDoc
             {
                 Cabecalho = ["EXERCÍCIO", "RECEITA CONSOLIDADA", "DESPESA EMPENHADA CONSOLIDADA", "DIFERENÇA", "% RECEITA VERSUS DESPESA"],
-                Linhas = l, Larguras = [16, 22, 24, 22, 16], NegritoUltimas = 1, CentralizarPrimeira = true
+                Linhas = l, Larguras = [16, 22, 24, 22, 16], NegritoUltimas = 1, CentralizarPrimeira = true, ColunasVariacao = [3, 4]
             });
         }
 
@@ -337,7 +337,7 @@ public class MontadorGerencial(IOptions<RelatorioOptions> opt)
                 ["DESPESAS EMPENHADAS CONSOLIDADAS", Fmt.Moeda(c.DespesaBase), Fmt.Moeda(da.Consolidada), Fmt.Moeda(da.Consolidada - c.DespesaBase), Fmt.Pct(Pct(da.Consolidada - c.DespesaBase, c.DespesaBase))],
                 ["DESPESAS PAGAS", Fmt.Moeda(c.PagoBase), Fmt.Moeda(da.Pago), Fmt.Moeda(da.Pago - c.PagoBase), Fmt.Pct(Pct(da.Pago - c.PagoBase, c.PagoBase))]
             ],
-            Larguras = [30, 20, 20, 18, 12]
+            Larguras = [30, 20, 20, 18, 12], ColunasVariacao = [3, 4]
         });
 
         Comparativa(doc, "FUNÇÃO DO GOVERNO", rot(c.AnoBase), rot(p.Ano), c.PagoPorFuncao, "TOTAL", $"DESPESAS PAGAS - {per.ToUpper(Fmt.PtBr)}");
@@ -362,7 +362,7 @@ public class MontadorGerencial(IOptions<RelatorioOptions> opt)
             doc.Tab(new TabelaDoc
             {
                 Titulo = $"DESPESAS PAGAS - {per.ToUpper(Fmt.PtBr)}", Cabecalho = ["FUNÇÃO", "SUBFUNÇÃO", rot(c.AnoBase), rot(p.Ano), "DIFERENÇA", "%"],
-                Linhas = l, Larguras = LargurasAuto(l, 8, colunasTexto: 2), LinhasNegrito = negritos, Fonte = 8,
+                Linhas = l, Larguras = LargurasAuto(l, 8, colunasTexto: 2), LinhasNegrito = negritos, Fonte = 8, ColunasVariacao = [4, 5],
                 Nota = "Legenda: *** Não apresentou valores no exercício base para comparação."
             });
         }
@@ -460,6 +460,7 @@ public class MontadorGerencial(IOptions<RelatorioOptions> opt)
         {
             Titulo = titulo, Cabecalho = [primeiraColuna, rotBase, rotAtual, "DIFERENÇA", "%"], Linhas = l,
             Larguras = LargurasAuto(l, 8.5, cabecalho: [primeiraColuna, rotBase, rotAtual, "DIFERENÇA", "%"]), NegritoUltimas = 1,
+            ColunasVariacao = [3, 4],
             Nota = itens.Any(x => x.Percentual is null) ? "Legenda: *** Não apresentou valores no exercício base para comparação." : null
         });
     }

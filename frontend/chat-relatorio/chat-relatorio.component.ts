@@ -1,5 +1,6 @@
 import { Component, ElementRef, OnDestroy, ViewChild, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ArquivoGerado, ChatRelatorioService, ChatResponse, ConsultaExecutada, Disponibilidade, MensagemChat, RelatorioGerado } from './chat-relatorio.service';
 
 interface ItemConversa extends MensagemChat {
@@ -34,6 +35,45 @@ const TAMANHO_MAX_ANEXO = 10 * 1024 * 1024;
 })
 export class ChatRelatorioComponent implements OnDestroy {
   private api = inject(ChatRelatorioService);
+  private sanitizer = inject(DomSanitizer);
+
+  // ---- pré-visualização do documento ao lado do chat (PDF do último relatório, atualizado a cada ajuste)
+  previa = signal<{ id: string; nome: string; url: SafeResourceUrl; bruto: string } | null>(null);
+  previaAberta = signal(true);
+  carregandoPrevia = signal(false);
+
+  visualizar(r: RelatorioGerado, clique = false) {
+    if (!r.arquivos.some((a) => a.formato === 'pdf')) return;
+    this.previaAberta.set(true);
+    // Tela estreita (sem espaço ao lado): o clique abre o documento numa nova aba
+    const estreita = typeof window !== 'undefined' && window.innerWidth <= 900;
+    if (this.previa()?.id === r.id) { if (clique && estreita) this.abrirPreviaEmNovaAba(); return; }
+    this.carregandoPrevia.set(true);
+    this.api.baixar(r.id, 'pdf').subscribe({
+      next: (blob) => {
+        const antiga = this.previa()?.bruto;
+        const bruto = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+        this.previa.set({ id: r.id, nome: r.nomeArquivo, bruto, url: this.sanitizer.bypassSecurityTrustResourceUrl(bruto + '#view=FitH') });
+        if (antiga) URL.revokeObjectURL(antiga);
+        this.carregandoPrevia.set(false);
+        if (clique && estreita) this.abrirPreviaEmNovaAba();
+      },
+      error: () => this.carregandoPrevia.set(false),   // relatório expirado: segue sem prévia
+    });
+  }
+
+  fecharPrevia() {
+    this.previaAberta.set(false);
+  }
+
+  abrirPreviaEmNovaAba() {
+    const p = this.previa();
+    if (p) window.open(p.bruto, '_blank');
+  }
+
+  rotuloArquivo(formato: string) {
+    return formato === 'pdf' ? 'PDF' : formato === 'xlsx' ? 'Excel (tabelas)' : 'Word (editável)';
+  }
 
   // ---- tempo de espera: decorrido + estimativa (média dos últimos pedidos neste navegador)
   private static readonly CHAVE_TEMPOS = 'chatRelatorio.tempos';
@@ -103,6 +143,8 @@ export class ChatRelatorioComponent implements OnDestroy {
   }
 
   ngOnDestroy() {
+    const p = this.previa();
+    if (p) URL.revokeObjectURL(p.bruto);
     clearInterval(this.timer);
     clearTimeout(this.poll);
   }
@@ -208,6 +250,9 @@ export class ChatRelatorioComponent implements OnDestroy {
         if (chave === this.chaveAtiva || this.carregando()) return;
         this.chaveAtiva = chave;
         this.mensagens.set(this.lerConversa(chave));
+        const ultimo = [...this.mensagens()].reverse().find((m) => m.relatorio)?.relatorio;
+        if (ultimo) this.visualizar(ultimo);
+        else this.previa.set(null);
         this.rolar();
       });
     }),
@@ -320,6 +365,7 @@ export class ChatRelatorioComponent implements OnDestroy {
       { papel: 'assistant', texto: r.resposta, relatorio: r.relatorio, consultas: r.consultas, sugestoes: r.sugestoes, hora: new Date() },
     ]);
     this.carregando.set(false);
+    if (r.relatorio) this.visualizar(r.relatorio);
     this.rolar();
   }
 

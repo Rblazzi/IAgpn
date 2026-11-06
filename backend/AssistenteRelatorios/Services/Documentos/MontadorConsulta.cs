@@ -577,6 +577,9 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
             Linhas = linhas,
             Larguras = larguras,
             NegritoUltimas = linhasDados.Count >= 2 ? 1 : 0,
+            ColunasVariacao = colunas.Select((c, k) => (c, k))
+                .Where(x => x.c.Formato == "variacao" || x.c.Formato == "percentual" && RegexColunaVariacao().IsMatch(x.c.Campo + " " + x.c.Rotulo))
+                .Select(x => x.k).ToArray(),
             CentralizarPrimeira = colunas[0].Formato != "texto",
             Fonte = colunas.Count > 5 ? 7.5 : 8.5,
             Nota = r.Linhas.Count > MaxLinhasTabela ? $"Exibindo {MaxLinhasTabela} de {r.Linhas.Count} linhas." : null
@@ -718,7 +721,8 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
                 Linhas = linhas,
                 Larguras = MontadorGerencial.LargurasAuto(linhas, fonte, cabecalho: cab.ToArray(), minPorTexto: nAnos >= 4 ? 14 : 20),
                 NegritoUltimas = itens.Count >= 2 ? 1 : 0,
-                Fonte = fonte
+                Fonte = fonte,
+                ColunasVariacao = cab.Select((c, k) => (c, k)).Where(x => x.c is "%" or "TOTAL %").Select(x => x.k).ToArray()
             });
         }
         // Legenda do "***" no último bloco, se aparecer em qualquer bloco

@@ -130,7 +130,8 @@ public class RenderizadorDocx(IOptions<RelatorioOptions> opt)
                     new TableCellWidth { Type = TableWidthUnitValues.Pct, Width = (t.Larguras[Math.Min(i, t.Larguras.Length - 1)] * 50).ToString() },
                     new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center });
                 if (cab) tcp.Append(new Shading { Val = ShadingPatternValues.Clear, Fill = "F2F2F2" });
-                tr.Append(new TableCell(tcp, P(R(celulas[i], negrito: negrito || cab, tamanho: fonte), alin, antes: 0, depois: 0,
+                var cor = cab ? null : t.CorCelula(i, celulas[i]);   // variação: queda em vermelho, alta em verde
+                tr.Append(new TableCell(tcp, P(R(celulas[i], negrito: negrito || cab, tamanho: fonte, cor: cor), alin, antes: 0, depois: 0,
                     entrelinhas: 240, manterProximo: (cab || manterJunto) && !ultima)));
             }
             return tr;

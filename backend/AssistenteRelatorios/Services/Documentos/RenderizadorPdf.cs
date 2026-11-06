@@ -182,6 +182,9 @@ public class RenderizadorPdf(IOptions<RelatorioOptions> opt)
                 p.Format.LineSpacingRule = LineSpacingRule.Single;
                 p.Format.SpaceBefore = 0; p.Format.SpaceAfter = 0;
                 p.Format.Font.Bold = negrito || cab;
+                // Variação: queda em vermelho, alta em verde (formatação condicional)
+                if (!cab && t.CorCelula(i, celulas[i]) is { } cor)
+                    p.Format.Font.Color = Color.FromRgb(Convert.ToByte(cor[..2], 16), Convert.ToByte(cor[2..4], 16), Convert.ToByte(cor[4..], 16));
                 p.Format.Alignment = cab ? ParagraphAlignment.Center
                     : i == 0 ? (t.CentralizarPrimeira ? ParagraphAlignment.Center : ParagraphAlignment.Left)
                     : ParagraphAlignment.Center;   // valores centralizados (padrão da consultoria)

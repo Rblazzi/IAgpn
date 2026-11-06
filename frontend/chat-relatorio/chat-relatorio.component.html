@@ -34,6 +34,8 @@
     }
   </header>
 
+  <div class="corpo">
+  <div class="area-chat">
   <div class="mensagens" #lista>
     @for (m of mensagens(); track $index) {
       <div class="linha" [class.usuario]="m.papel === 'user'">
@@ -51,10 +53,11 @@
             <div class="arquivos">
               @for (arq of r.arquivos; track arq.formato) {
                 <div class="arquivo">
-                  <span class="icone" [class.pdf]="arq.formato === 'pdf'" aria-hidden="true">{{ arq.formato === 'pdf' ? 'PDF' : 'W' }}</span>
+                  <span class="icone" [class.pdf]="arq.formato === 'pdf'" [class.excel]="arq.formato === 'xlsx'" aria-hidden="true">
+                    {{ arq.formato === 'pdf' ? 'PDF' : arq.formato === 'xlsx' ? 'X' : 'W' }}</span>
                   <span class="info">
                     <strong [title]="r.nomeArquivo + '.' + arq.formato">{{ r.nomeArquivo }}.{{ arq.formato }}</strong>
-                    <small>{{ arq.formato === 'pdf' ? 'PDF' : 'Word (editável)' }} · {{ tamanho(arq.tamanho) }}</small>
+                    <small>{{ rotuloArquivo(arq.formato) }} · {{ tamanho(arq.tamanho) }}</small>
                   </span>
                   <button type="button" class="btn-verde" (click)="baixar(r, arq)" [disabled]="baixando() === r.id + arq.formato">
                     {{ baixando() === r.id + arq.formato ? 'Baixando…' : 'Baixar' }}
@@ -62,6 +65,11 @@
                 </div>
               }
             </div>
+          }
+          @if (m.relatorio; as r) {
+            <button type="button" class="link ver-doc" (click)="visualizar(r, true)" [class.atual]="previa()?.id === r.id && previaAberta()">
+              {{ previa()?.id === r.id && previaAberta() ? 'Exibindo ao lado' : 'Visualizar ao lado' }}
+            </button>
           }
           <time>{{ m.hora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }}</time>
         </div>
@@ -132,4 +140,19 @@
       {{ enviandoAnexo() ? 'Enviando…' : 'Enviar' }}
     </button>
   </form>
+  </div>
+
+  <!-- Documento ao lado do chat: o PDF do relatório, atualizado a cada ajuste -->
+  @if (previa() && previaAberta()) {
+    <aside class="previa" aria-label="Pré-visualização do documento">
+      <div class="previa-topo">
+        <strong [title]="previa()!.nome">{{ previa()!.nome }}</strong>
+        @if (carregandoPrevia()) { <small>atualizando…</small> }
+        <button type="button" class="link" (click)="abrirPreviaEmNovaAba()">Abrir em nova aba</button>
+        <button type="button" class="fechar" (click)="fecharPrevia()" aria-label="Fechar visualização">×</button>
+      </div>
+      <iframe [src]="previa()!.url" title="Documento gerado"></iframe>
+    </aside>
+  }
+  </div>
 </section>
