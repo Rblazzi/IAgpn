@@ -2,11 +2,15 @@ import { Component, input } from '@angular/core';
 import { ChatRelatorioComponent } from './chat-relatorio.component';
 
 /**
- * Tela pronta "Relatórios com IA": o chat ocupando a página inteira.
- * Uso como rota do painel:
- *   { path: 'relatorios-ia', loadComponent: () => import('./chat-relatorio').then(m => m.PaginaRelatoriosIaComponent) }
- * Com `withComponentInputBinding()` no provideRouter, ?municipio=aguas-da-prata já abre no município.
- * Para colocar o chat numa tela que já existe, use só <app-chat-relatorio [municipio]="..." />.
+ * TELA DO CHAT (é esta que vai no módulo do painel).
+ *
+ * Opção 1 — como rota do módulo:
+ *   import { PaginaRelatoriosIaComponent } from './chat-relatorio/pagina-relatorios-ia.component';
+ *   { path: 'relatorios-ia', component: PaginaRelatoriosIaComponent }
+ *
+ * Opção 2 — dentro de uma tela que já existe (importar PaginaRelatoriosIaComponent no componente):
+ *   <app-pagina-relatorios-ia />                         → mostra o seletor de municípios
+ *   <app-pagina-relatorios-ia municipio="aguas-da-prata" /> → já abre no município (nome ou código)
  */
 @Component({
   selector: 'app-pagina-relatorios-ia',

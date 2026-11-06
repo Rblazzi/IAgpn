@@ -8,7 +8,12 @@
 **/appsettings.*.local.json
 .env
 
-# Demonstração local (API, tela de teste e testes automáticos): fica só no computador, não vai para o Git
+# Gerados ao rodar a API do chat (relatórios, brasões baixados, tela compilada para testes)
+backend/relatorios/
+backend/brasoes/
+backend/wwwroot/
+
+# Demonstração local (tela de teste e testes automáticos): fica só no computador, não vai para o Git
 demo/
 
 # IDE / sistema

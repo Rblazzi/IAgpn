@@ -1,15 +1,15 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, InjectionToken, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { CHAT_RELATORIO_CONFIG } from './chat-relatorio.config';
 
 /**
- * Endereço da API onde o módulo do backend está (com "/" no fim). Padrão: "/" (mesmo endereço do site).
- * No painel, informar no app.config.ts:
- *   { provide: CHAT_RELATORIO_API_URL, useValue: environment.baseUrl }
+ * Endereço da API do chat. Vem de chat-relatorio.config.ts (basta editar lá).
+ * Opcional: pode ser sobrescrito no app.config.ts com { provide: CHAT_RELATORIO_API_URL, useValue: '...' }.
  */
 export const CHAT_RELATORIO_API_URL = new InjectionToken<string>('CHAT_RELATORIO_API_URL', {
   providedIn: 'root',
-  factory: () => '/',
+  factory: () => CHAT_RELATORIO_CONFIG.apiUrl,
 });
 
 export interface MensagemChat {

@@ -8,30 +8,26 @@ Stack igual à do painel: **ASP.NET Core (.NET 9)** + **Angular 19**.
 
 ```
 chat-relatorio/
-├── backend/
-│   ├── AssistenteRelatorios/        ★ VAI PARA O PAINEL: projeto do back-end (API, IA, banco, Word/PDF, prompts)
-│   └── appsettings.example.json       modelo da configuração (sem senha nem chave)
+├── backend/                         ★ COPIAR INTEIRA: a API do chat (sistema à parte, site próprio)
+│   ├── AssistenteRelatorios/          o código (IA, banco, Word/PDF, prompts)
+│   ├── Program.cs, RelatorioIA.Api.csproj
+│   └── appsettings.example.json       modelo da configuração (o appsettings.json real fica fora do Git)
 ├── frontend/
-│   └── chat-relatorio/              ★ VAI PARA O PAINEL: a tela do chat (componente, serviço, tela pronta)
-├── demo/                            só no computador de desenvolvimento (fora do Git) — NÃO vai para o painel
-│   ├── api/                           API de demonstração (referencia backend/AssistenteRelatorios)
-│   ├── web/                           tela de teste: só o chat (usa frontend/chat-relatorio)
-│   └── tests/                         testes automáticos contra o Tcudb
-├── INTEGRACAO.md                    passo a passo para colocar no painel
+│   └── chat-relatorio/              ★ COPIAR INTEIRA para o módulo do painel: a tela do chat
+│       ├── pagina-relatorios-ia.component.ts   a tela (usar como rota ou <app-pagina-relatorios-ia />)
+│       └── chat-relatorio.config.ts            endereço da API do chat (único ajuste)
+├── INTEGRACAO.md                    passo a passo
 └── README.md
 ```
+A pasta `demo/` (tela de teste e testes automáticos) fica só no computador de desenvolvimento, fora do Git.
 
 ## Integração no painel
 
-São só as duas pastas marcadas com ★. Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
+Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
 
-- **Back:** copiar `backend/AssistenteRelatorios/` para a solução da API do painel, referenciar
-  `AssistenteRelatorios.csproj` (pacotes e prompts vão junto), 2 linhas no `Program.cs`, configuração e `[Authorize]`.
-- **Front:** colar `frontend/chat-relatorio/` no módulo do painel onde fica a tela nova, informar
-  `CHAT_RELATORIO_API_URL` e colocar `<app-chat-relatorio [municipio]="..." />` na tela.
-
-Os nomes foram escolhidos para não colidir com o painel: o DbContext do módulo é `RelatorioDbContext`
-(somente leitura, mapeado nas views `dbo.vw_ReceitaCompleta` e `dbo.vw_DespesaCompleta`) e o namespace é `RelatorioIA.Api.*`.
+- **Back:** publicar a pasta `backend/` como um site próprio (configurar `appsettings.json` e `Cors:Origens`).
+- **Front:** copiar `frontend/chat-relatorio/` para o módulo, colocar o endereço da API em
+  `chat-relatorio.config.ts` e usar a tela `PaginaRelatoriosIaComponent` (rota ou tag).
 
 ## Endpoints
 
@@ -80,13 +76,13 @@ Os prompts (`AssistenteRelatorios/Prompts/*.md`) são lidos a cada pedido, entã
 ## Rodar a demonstração
 
 ```bash
-# 1ª vez: copiar backend/appsettings.example.json para demo/api/appsettings.json e preencher
-cd demo/api && dotnet run --launch-profile http      # API em http://localhost:5101 (aceita acesso pela rede)
-cd demo/web && npm install && npm start              # tela em http://localhost:4200 (aceita acesso pela rede)
-cd demo/tests && dotnet test                         # testes contra o Tcudb (conexão do demo/api/appsettings.json ou variável TCUDB)
+# 1ª vez: copiar backend/appsettings.example.json para backend/appsettings.json e preencher
+cd backend && dotnet run --launch-profile http       # API em http://localhost:5101 (aceita acesso pela rede)
+cd demo/web && npm install && npm start              # tela de teste em http://localhost:4200
+cd demo/tests && dotnet test                         # testes contra o Tcudb (conexão do backend/appsettings.json ou variável TCUDB)
 
 # Tela compilada servida pela própria API (um endereço só, ex.: para o túnel):
-cd demo/web && npm run build && cp -r dist/frontend/browser ../api/wwwroot
+cd demo/web && npm run build && cp -r dist/frontend/browser ../../backend/wwwroot
 ```
 
 **Rode `dotnet test` antes de publicar qualquer alteração.** Se um teste do gabarito quebrar, os relatórios deixaram de bater com o oficial.
