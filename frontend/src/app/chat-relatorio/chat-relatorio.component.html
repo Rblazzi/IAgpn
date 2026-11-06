@@ -1,0 +1,109 @@
+<section class="card-chat">
+  <header class="card-topo">
+    <h2>Assistente de Relatórios{{ municipioAtual() ? ' - ' + municipioAtual() : '' }}</h2>
+    <p class="subtitulo">Peça em linguagem natural · relatórios em Word e PDF com os dados do TCESP</p>
+
+    <div class="menu">
+      <button type="button" class="hamburguer" (click)="menuAberto.set(!menuAberto())" aria-label="Opções do assistente"
+              [attr.aria-expanded]="menuAberto()">
+        <span></span><span></span><span></span>
+      </button>
+      @if (menuAberto()) {
+        <div class="menu-lista" role="menu">
+          <button type="button" role="menuitem" (click)="novaConversa()" [disabled]="carregando()">Nova conversa</button>
+          @if (motor()) {
+            <span class="menu-info">Motor: {{ motor() }}</span>
+          }
+        </div>
+      }
+    </div>
+
+    <!-- Seletor só aparece fora do painel (quando a página não informa o município) -->
+    @if (!municipio() && municipios().length > 0) {
+      <label class="seletor">
+        Município
+        <select [ngModel]="municipioSelecionado()" (ngModelChange)="trocarMunicipio($event)" [disabled]="carregando()">
+          @for (m of municipios(); track m) {
+            <option [value]="m">{{ m }}</option>
+          }
+        </select>
+      </label>
+    }
+  </header>
+
+  <div class="mensagens" #lista>
+    @for (m of mensagens(); track $index) {
+      <div class="linha" [class.usuario]="m.papel === 'user'">
+        <div class="balao" [class.erro]="m.erro">
+          <div [innerHTML]="formatar(m.texto)"></div>
+
+          @if (m.relatorio; as r) {
+            <div class="arquivos">
+              @for (arq of r.arquivos; track arq.formato) {
+                <div class="arquivo">
+                  <span class="icone" [class.pdf]="arq.formato === 'pdf'" aria-hidden="true">{{ arq.formato === 'pdf' ? 'PDF' : 'W' }}</span>
+                  <span class="info">
+                    <strong [title]="r.nomeArquivo + '.' + arq.formato">{{ r.nomeArquivo }}.{{ arq.formato }}</strong>
+                    <small>{{ arq.formato === 'pdf' ? 'PDF' : 'Word (editável)' }} · {{ tamanho(arq.tamanho) }}</small>
+                  </span>
+                  <button type="button" class="btn-verde" (click)="baixar(r, arq)" [disabled]="baixando() === r.id + arq.formato">
+                    {{ baixando() === r.id + arq.formato ? 'Baixando…' : 'Baixar' }}
+                  </button>
+                </div>
+              }
+            </div>
+          }
+          <time>{{ m.hora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }}</time>
+        </div>
+      </div>
+      <!-- Sugestões de próximas perguntas: só abaixo da última resposta -->
+      @if ($last && m.papel === 'assistant' && m.sugestoes?.length && !carregando()) {
+        <div class="continuar">
+          <span>Continue a análise:</span>
+          @for (s of m.sugestoes!; track s) {
+            <button type="button" class="chip" (click)="enviar(s)">{{ s }}</button>
+          }
+        </div>
+      }
+    }
+
+    @if (carregando()) {
+      <div class="linha">
+        <div class="balao espera" role="status" aria-live="polite">
+          <div class="digitando">
+            <span></span><span></span><span></span>
+            <em>{{ etapa() }}</em>
+          </div>
+          <div class="barra" aria-hidden="true"><div [style.width.%]="progresso()"></div></div>
+          <div class="rodape-espera">
+            <small>{{ relogio(decorrido()) }} decorridos · {{ textoEstimativa() }}</small>
+            <button type="button" class="link" (click)="cancelar()">Cancelar</button>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (mensagens().length === 1 && sugestoesIniciais().length) {
+      <div class="continuar">
+        <span>Experimente:</span>
+        @for (s of sugestoesIniciais(); track s) {
+          <button type="button" class="chip" (click)="enviar(s)">{{ s }}</button>
+        }
+      </div>
+    }
+  </div>
+
+  <form class="entrada" (ngSubmit)="enviar()">
+    <textarea
+      [(ngModel)]="texto"
+      name="texto"
+      rows="2"
+      maxlength="2000"
+      placeholder="Ex.: Relatório de receitas e despesas do 1º semestre comparando com o ano anterior"
+      aria-label="Pedido ao assistente"
+      (keydown)="teclado($event)"
+      [disabled]="carregando()"
+    ></textarea>
+    <button type="submit" class="btn-verde" [disabled]="carregando() || !texto.trim()">Enviar</button>
+  </form>
+</section>

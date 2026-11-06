@@ -1,0 +1,28 @@
+# Build
+**/bin/
+**/obj/
+tests/TestResults/
+
+# Segredos (senha do banco e chave do Gemini) — usar backend/appsettings.example.json como modelo
+backend/appsettings.json
+backend/appsettings.*.local.json
+.env
+
+# Arquivos gerados em execução (relatórios, brasões baixados, front compilado)
+backend/relatorios/
+backend/brasoes/
+backend/wwwroot/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+
+# IDE / sistema
+.vs/
+.vscode/
+*.user
+*.suo
+Thumbs.db
+.DS_Store
+*.log

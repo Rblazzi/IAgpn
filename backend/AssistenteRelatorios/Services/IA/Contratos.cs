@@ -1,0 +1,161 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace RelatorioIA.Api.Services.IA;
+
+public record MensagemChat(string Papel, string Texto); // Papel: "user" | "assistant"
+
+/// <summary>
+/// Contrato mínimo com o modelo de IA: recebe um prompt de sistema + conversa e devolve JSON no formato do schema.
+/// Para usar o "padrão Gemini" de outro sistema, basta implementar esta interface.
+/// </summary>
+public interface IModeloIA
+{
+    string Nome { get; }
+    Task<JsonElement> GerarJsonAsync(string sistema, IEnumerable<(string papel, string texto)> conversa,
+        object schema, double temperatura, CancellationToken ct);
+}
+
+/// <summary>Plano devolvido pelo Prompt 1 (o que fazer + consultas SQL).</summary>
+public class Plano
+{
+    /// <summary>relatorio_gerencial | relatorio_consulta | responder | esclarecer</summary>
+    public string Acao { get; set; } = "relatorio_gerencial";
+    public string? Mensagem { get; set; }
+    // relatório gerencial
+    public string? Municipio { get; set; }
+    public int? Ano { get; set; }
+    public int? MesInicial { get; set; }
+    public int? MesFinal { get; set; }
+    public int? AnoComparacao { get; set; }
+    public bool? IncluirReceitas { get; set; }
+    public bool? IncluirDespesas { get; set; }
+    // consultas (pode envolver vários municípios — comparativos entre cidades)
+    public List<string> Municipios { get; set; } = [];
+    public string? Titulo { get; set; }
+    public string? PeriodoDescricao { get; set; }
+    public List<ConsultaPlanejada> Consultas { get; set; } = [];
+    /// <summary>Pedido de projeção/estimativa: o SISTEMA calcula a partir do histórico mensal da consulta indicada.</summary>
+    public ProjecaoPlanejada? Projecao { get; set; }
+    /// <summary>Quem assina na última página (ex.: "Gestor responsável"). Vazio = padrão da configuração.</summary>
+    public string? Assinatura { get; set; }
+}
+
+public class ProjecaoPlanejada
+{
+    public string ConsultaId { get; set; } = "";
+    public string? CampoValor { get; set; }
+    public int AteAno { get; set; }
+    public int AteMes { get; set; } = 12;
+    /// <summary>O que está sendo projetado, ex.: "Despesa empenhada com Saúde".</summary>
+    public string Metrica { get; set; } = "";
+}
+
+public class ConsultaPlanejada
+{
+    public string Id { get; set; } = "";
+    public string Objetivo { get; set; } = "";
+    public string Sql { get; set; } = "";
+}
+
+/// <summary>Textos do relatório gerencial padrão (Prompt 3). Parágrafos separados por linha em branco.</summary>
+public class TextosRelatorio
+{
+    public string Introducao { get; set; } = "";
+    public string AnaliseReceitas { get; set; } = "";
+    public string AnaliseDespesas { get; set; } = "";
+    public string AnaliseComparativa { get; set; } = "";
+    public string Conclusao { get; set; } = "";
+    public List<string> Sugestoes { get; set; } = [];
+
+    // Um comentário analítico para CADA quadro (pedido da gerência: nenhum quadro sem comentário)
+    public string ComentarioFontes { get; set; } = "";
+    public string ComentarioOrgaosReceita { get; set; } = "";
+    public string ComentarioReceitaMensal { get; set; } = "";
+    public string ComentarioCategorias { get; set; } = "";
+    public string ComentarioRubricas { get; set; } = "";
+    public string ComentarioModalidade { get; set; } = "";
+    public string ComentarioTiposDespesa { get; set; } = "";
+    public string ComentarioDespesaMensal { get; set; } = "";
+    public string ComentarioOrgaosDespesa { get; set; } = "";
+    public string ComentarioFontesDespesa { get; set; } = "";
+    public string ComentarioFuncoes { get; set; } = "";
+    public string ComentarioSubfuncoes { get; set; } = "";
+    public string ComentarioFuncoesDetalhadas { get; set; } = "";
+    public string ComentarioComparativoFontes { get; set; } = "";
+    public string ComentarioComparativoOrgaos { get; set; } = "";
+    public string ComentarioComparativoFuncoes { get; set; } = "";
+    public string ComentarioComparativoPagas { get; set; } = "";
+
+    /// <summary>Nomes (camelCase) dos campos de texto — usados no schema enviado à IA.</summary>
+    public static readonly string[] Campos =
+    [
+        "introducao", "analiseReceitas", "comentarioFontes", "comentarioOrgaosReceita", "comentarioReceitaMensal",
+        "comentarioCategorias", "comentarioRubricas", "analiseDespesas", "comentarioModalidade", "comentarioTiposDespesa",
+        "comentarioDespesaMensal", "comentarioOrgaosDespesa", "comentarioFontesDespesa", "comentarioFuncoes",
+        "comentarioSubfuncoes", "comentarioFuncoesDetalhadas", "analiseComparativa", "comentarioComparativoFontes",
+        "comentarioComparativoOrgaos", "comentarioComparativoFuncoes", "comentarioComparativoPagas", "conclusao"
+    ];
+}
+
+/// <summary>Estrutura do relatório por consulta (Prompt 2).</summary>
+public class EstruturaRelatorio
+{
+    public string Titulo { get; set; } = "";
+    public string Subtitulo { get; set; } = "";
+    public string Introducao { get; set; } = "";
+    public List<SecaoRelatorio> Secoes { get; set; } = [];
+    public string Conclusao { get; set; } = "";
+    public List<string> Sugestoes { get; set; } = [];
+}
+
+public class SecaoRelatorio
+{
+    public string Titulo { get; set; } = "";
+    public string TextoAntes { get; set; } = "";
+    public TabelaPlanejada? Tabela { get; set; }
+    public GraficoPlanejado? Grafico { get; set; }
+    public string TextoDepois { get; set; } = "";
+}
+
+/// <summary>Gráfico pedido pela IA: o sistema desenha com os valores reais da consulta.</summary>
+public class GraficoPlanejado
+{
+    public string ConsultaId { get; set; } = "";
+    public string Titulo { get; set; } = "";
+    /// <summary>colunas (comparar categorias/meses) | barras (ranking/parte do todo) | linha (evolução no tempo)</summary>
+    public string Tipo { get; set; } = "colunas";
+    public string CampoCategoria { get; set; } = "";
+    public List<string> CamposValor { get; set; } = [];
+    public List<string> NomesSeries { get; set; } = [];
+    /// <summary>moeda | numero | percentual</summary>
+    public string Formato { get; set; } = "moeda";
+}
+
+public class TabelaPlanejada
+{
+    public string ConsultaId { get; set; } = "";
+    public string Titulo { get; set; } = "";
+    public List<ColunaPlanejada> Colunas { get; set; } = [];
+    public bool LinhaTotal { get; set; }
+}
+
+public class ColunaPlanejada
+{
+    public string Campo { get; set; } = "";
+    public string Rotulo { get; set; } = "";
+    /// <summary>texto | moeda | numero | percentual | participacao | variacao (campo × campoBase; sem base = linha anterior)</summary>
+    public string Formato { get; set; } = "texto";
+    public string? CampoBase { get; set; }
+}
+
+public static class JsonIA
+{
+    public static readonly JsonSerializerOptions Opcoes = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+}

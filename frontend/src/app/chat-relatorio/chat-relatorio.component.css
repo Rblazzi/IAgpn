@@ -1,0 +1,148 @@
+/* Visual do painel GPN: card branco sobre fundo cinza, título centralizado, verde do painel, tabelas/inputs Bootstrap.
+   A fonte é herdada da página (a mesma dos outros cards). Altura do card: variável --chat-altura. */
+:host {
+  --verde: #1e8449;
+  --verde-escuro: #176b3a;
+  --verde-claro: #eaf5ee;
+  --titulo: #333;
+  --texto: #212529;
+  --suave: #6c757d;
+  --borda: #dee2e6;
+  --borda-campo: #ced4da;
+  --listra: #f2f2f2;
+  display: block;
+  min-width: 0; /* não estoura a largura dentro de grid/flex do painel */
+}
+
+.card-chat {
+  display: flex;
+  flex-direction: column;
+  height: var(--chat-altura, 640px);
+  background: #fff;
+  color: var(--texto);
+}
+
+/* ---- cabeçalho no padrão dos cards ("Arrecadação Mensal - Ano 2026") */
+.card-topo {
+  position: relative;
+  padding: 12px 56px 10px;
+  text-align: center;
+}
+.card-topo h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--titulo);
+}
+.subtitulo { margin: 2px 0 0; font-size: 0.82rem; color: var(--suave); }
+
+.menu { position: absolute; top: 12px; right: 14px; }
+.hamburguer {
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+  width: 26px; height: 24px; padding: 3px; border: 0; background: none; cursor: pointer;
+}
+.hamburguer span { display: block; height: 3px; border-radius: 1px; background: #444; }
+.hamburguer:hover span { background: #000; }
+.menu-lista {
+  position: absolute; right: 0; top: 28px; z-index: 5;
+  min-width: 190px; padding: 6px 0;
+  background: #fff; border: 1px solid #a0a0a0; box-shadow: 3px 3px 10px #888; text-align: left;
+}
+.menu-lista button {
+  display: block; width: 100%; padding: 6px 14px; border: 0; background: none;
+  font: inherit; font-size: 0.85rem; color: #333; text-align: left; cursor: pointer;
+}
+.menu-lista button:hover:not(:disabled) { background: #335cad; color: #fff; }
+.menu-lista button:disabled { color: #aaa; cursor: not-allowed; }
+.menu-info { display: block; padding: 6px 14px 2px; font-size: 0.72rem; color: var(--suave); border-top: 1px solid var(--borda); }
+
+.seletor { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.85rem; }
+.seletor select {
+  font: inherit; padding: 4px 8px; border: 1px solid var(--borda-campo); border-radius: 4px; background: #fff;
+}
+
+/* ---- conversa */
+.mensagens {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  border-top: 1px solid var(--borda);
+  border-bottom: 1px solid var(--borda);
+}
+
+.linha { display: flex; margin-bottom: 12px; }
+.linha.usuario { justify-content: flex-end; }
+
+.balao {
+  max-width: 80%;
+  padding: 10px 14px;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  background: var(--listra);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.usuario .balao { background: var(--verde); border-color: var(--verde); color: #fff; }
+.balao.erro { background: #fff5f5; border-color: #f1aeb5; }
+.balao time { display: block; margin-top: 4px; font-size: 0.7rem; opacity: 0.6; text-align: right; }
+.balao :is(strong, b) { font-weight: 700; }
+
+/* ---- arquivos gerados (no estilo das tabelas do painel) */
+.arquivos { margin-top: 10px; border: 1px solid var(--borda); background: #fff; }
+.arquivo { display: flex; align-items: center; gap: 12px; padding: 8px 10px; }
+.arquivo + .arquivo { border-top: 1px solid var(--borda); }
+.arquivo .icone {
+  width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+  border-radius: 4px; background: #185abd; color: #fff; font-weight: 700; font-size: 0.85rem;
+}
+.arquivo .icone.pdf { background: #c62828; font-size: 0.68rem; }
+.arquivo .info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.arquivo .info strong { font-size: 0.85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arquivo .info small { font-size: 0.75rem; color: var(--suave); }
+
+/* ---- botões */
+.btn-verde {
+  font: inherit; font-size: 0.9rem; cursor: pointer;
+  padding: 6px 16px; border: 1px solid var(--verde); border-radius: 4px;
+  background: var(--verde); color: #fff;
+}
+.btn-verde:hover:not(:disabled) { background: var(--verde-escuro); border-color: var(--verde-escuro); }
+.btn-verde:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.continuar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 12px; max-width: 80%; }
+.continuar > span { width: 100%; font-size: 0.78rem; color: var(--suave); }
+.chip {
+  font: inherit; font-size: 0.85rem; text-align: left; cursor: pointer;
+  padding: 5px 12px; border: 1px solid var(--borda-campo); border-radius: 4px; background: #fff; color: var(--texto);
+}
+.chip:hover { border-color: var(--verde); color: var(--verde); background: var(--verde-claro); }
+
+/* ---- espera */
+.espera { min-width: 300px; background: #fff; }
+.digitando { display: flex; align-items: center; gap: 4px; }
+.digitando span { width: 7px; height: 7px; border-radius: 50%; background: var(--verde); animation: pulo 1.2s infinite; }
+.digitando span:nth-child(2) { animation-delay: 0.15s; }
+.digitando span:nth-child(3) { animation-delay: 0.3s; }
+.digitando em { margin-left: 8px; font-size: 0.85rem; font-style: normal; color: var(--suave); }
+.barra { height: 4px; margin-top: 8px; border-radius: 2px; background: #e9ecef; overflow: hidden; }
+.barra div { height: 100%; background: var(--verde); transition: width 1s linear; }
+.rodape-espera { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rodape-espera small { margin-top: 4px; font-size: 0.75rem; color: var(--suave); font-variant-numeric: tabular-nums; }
+button.link { padding: 0; border: 0; background: none; font: inherit; font-size: 0.75rem; color: var(--verde); text-decoration: underline; cursor: pointer; }
+@keyframes pulo { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+/* ---- entrada (form-control do Bootstrap) */
+.entrada { display: flex; align-items: stretch; gap: 10px; padding: 12px 16px; }
+.entrada textarea {
+  flex: 1; resize: none; font: inherit; font-size: 0.95rem;
+  padding: 8px 12px; border: 1px solid var(--borda-campo); border-radius: 4px; color: var(--texto);
+}
+.entrada textarea:focus { outline: 0; border-color: #86b7fe; box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2); }
+.entrada .btn-verde { padding: 0 22px; }
+
+@media (max-width: 600px) {
+  .card-topo { padding: 10px 44px 8px; }
+  .balao, .continuar { max-width: 94%; }
+  .mensagens, .entrada { padding-left: 10px; padding-right: 10px; }
+  .espera { min-width: 0; }
+}
