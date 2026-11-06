@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Módulo "Assistente de Relatórios" (chat com IA → relatórios TCESP em Word/PDF).
+    Para usar na API do painel: copiar esta pasta para a solução e referenciar este projeto
+      dotnet add <ApiDoPainel>.csproj reference AssistenteRelatorios/AssistenteRelatorios.csproj
+    Os pacotes NuGet e os prompts (.md) vão junto automaticamente — nada para acrescentar no .csproj do painel.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RelatorioIA.Api</RootNamespace>
+    <AssemblyName>AssistenteRelatorios</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Controllers, IWebHostEnvironment etc. (o mesmo framework da API do painel) -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Mesmos usings implícitos de um projeto Web -->
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="System.Net.Http.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
+    <!-- Se a API do painel usar outra versão 9.x do EF Core, alinhe aqui -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.10" />
+    <PackageReference Include="PDFsharp-MigraDoc" Version="6.2.2" />
+    <PackageReference Include="SkiaSharp" Version="3.119.0" />
+    <!-- Servidor Linux: descomentar -->
+    <!-- <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.0" /> -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Prompts editáveis: vão para bin/ e para a publicação da API em AssistenteRelatorios/Prompts/ -->
+    <None Remove="Prompts\**" />
+    <None Include="Prompts\**\*.md" Link="AssistenteRelatorios\Prompts\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -12,7 +12,16 @@ public class PromptStore(IWebHostEnvironment env)
     public const string Responder = "04-responder.md";
     public const string Sugestoes = "05-sugestoes.md";
 
-    public string Pasta => Path.Combine(env.ContentRootPath, "AssistenteRelatorios", "Prompts");
+    /// <summary>
+    /// Pasta dos prompts: na raiz do site (módulo copiado dentro do projeto da API ou publicado) ou, quando o módulo é
+    /// um projeto referenciado, na pasta de saída (bin), para onde o AssistenteRelatorios.csproj copia os .md.
+    /// </summary>
+    public string Pasta { get; } = new[]
+    {
+        Path.Combine(env.ContentRootPath, "AssistenteRelatorios", "Prompts"),
+        Path.Combine(AppContext.BaseDirectory, "AssistenteRelatorios", "Prompts")
+    }.FirstOrDefault(p => File.Exists(Path.Combine(p, Planejar)))
+      ?? Path.Combine(env.ContentRootPath, "AssistenteRelatorios", "Prompts");
 
     public string Montar(string arquivo, IReadOnlyDictionary<string, string> valores)
     {

@@ -8,84 +8,38 @@ Stack igual à do painel: **ASP.NET Core (.NET 9)** + **Angular 19**.
 
 ```
 chat-relatorio/
+├── INTEGRACAO.md                    ← PASSO A PASSO para colocar no painel
 ├── backend/
-│   ├── AssistenteRelatorios/        ← O MÓDULO (copiar esta pasta inteira)
+│   ├── AssistenteRelatorios/        ← O MÓDULO (projeto próprio: AssistenteRelatorios.csproj)
 │   │   ├── AssistenteRelatoriosSetup.cs   registro: AddAssistenteRelatorios / InicializarAssistenteRelatoriosAsync
 │   │   ├── Controllers/  Data/  Models/  Prompts/  Services/
-│   ├── Program.cs                   host de demonstração (16 linhas)
-│   ├── appsettings.json             configuração (contém senha e chave — NÃO versionar)
+│   ├── Program.cs                   host de demonstração (referencia o módulo)
+│   ├── appsettings.example.json     modelo de configuração (o appsettings.json real fica fora do Git)
 │   └── RelatorioIA.Api.csproj
 ├── frontend/
-│   └── src/app/chat-relatorio/      ← O MÓDULO (copiar esta pasta: componente + serviço)
+│   └── src/app/chat-relatorio/      ← O MÓDULO (componente, serviço e tela pronta; importar de './chat-relatorio')
 │       (o resto do frontend é só a casca de demonstração)
-└── tests/                           72 testes de integração contra o Tcudb
+└── tests/                           testes de integração contra o Tcudb
 ```
 
 ## Integração no painel
 
-### Back-end (API do painel)
+Ver **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
 
-1. Copiar `backend/AssistenteRelatorios/` para a raiz do projeto da API.
-2. Adicionar os pacotes NuGet:
-   ```xml
-   <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
-   <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.10" />
-   <PackageReference Include="PDFsharp-MigraDoc" Version="6.2.2" />
-   <PackageReference Include="SkiaSharp" Version="3.119.0" />
-   <!-- em servidor Linux: <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.0" /> -->
-   ```
-   e copiar os prompts na publicação:
-   ```xml
-   <None Update="AssistenteRelatorios\Prompts\**\*.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-   ```
-   Se a API do painel usar outra versão do EF Core, alinhe a do `Microsoft.EntityFrameworkCore.SqlServer` com ela.
-3. No `Program.cs` do painel, duas linhas (`using RelatorioIA.Api;`):
-   ```csharp
-   builder.Services.AddAssistenteRelatorios(builder.Configuration);   // antes do builder.Build()
-   await app.InicializarAssistenteRelatoriosAsync();                   // depois do builder.Build()
-   ```
-   Os controllers são achados pelo `AddControllers()` / `MapControllers()` que o painel já tem.
-4. Configuração (`appsettings` ou cofre de segredos do painel). No repositório só existe o modelo
-   `backend/appsettings.example.json` (sem senha nem chave): copie para `backend/appsettings.json` e preencha.
-   O `appsettings.json` fica fora do Git.
-   ```jsonc
-   "ConnectionStrings": { "Tcudb": "Server=...;Database=Tcudb;User Id=<somente leitura>;Password=...;TrustServerCertificate=True;Encrypt=True" },
-   "Gemini": { "ApiKey": "...", "Model": "gemini-3.1-flash-lite", "ModelosReserva": [ "gemini-3.5-flash-lite", "gemini-flash-lite-latest" ], "TimeoutSegundos": 60, "SegundaChamadaAposSegundos": 25 },
-   "Relatorio": { "Pasta": "relatorios", "PastaBrasoes": "brasoes", "Consultoria": "GPN Consultoria", "Responsavel": "", "Contato": "", "DiasManter": 30 },
-   "Chat": { "PedidosSimultaneos": 3, "TempoMaximoMinutos": 8 }   // opcional
-   ```
-   A chave do Gemini também pode vir da variável `GEMINI_API_KEY`. Sem chave, o módulo funciona em "modo local" (sem IA).
-   `SegundaChamadaAposSegundos`: se o Gemini não responder nesse tempo, uma 2ª chamada igual é disparada em paralelo e
-   vale a que chegar primeiro (0 desliga). O log registra o tempo de cada etapa de cada pedido ("Tempo total ...").
-5. **Autenticação:** colocar `[Authorize]` nos 3 controllers de `AssistenteRelatorios/Controllers/ChatController.cs`,
-   com o mesmo esquema do painel, e, se for o caso, restringir o município ao do usuário logado.
+- **Back:** copiar `backend/AssistenteRelatorios/`, referenciar `AssistenteRelatorios.csproj` na API do painel
+  (pacotes e prompts vão junto), 2 linhas no `Program.cs`, configuração (`Tcudb`, `Gemini`, `Relatorio`) e `[Authorize]`.
+- **Front:** copiar `src/app/chat-relatorio/`, informar `CHAT_RELATORIO_API_URL` no `app.config.ts` e colocar
+  `<app-chat-relatorio [municipio]="..." />` na tela (ou usar a rota pronta `PaginaRelatoriosIaComponent`).
 
 Os nomes foram escolhidos para não colidir com o painel: o DbContext do módulo é `RelatorioDbContext`
 (somente leitura, mapeado nas views `dbo.vw_ReceitaCompleta` e `dbo.vw_DespesaCompleta`) e o namespace é `RelatorioIA.Api.*`.
-
-**Rotas usadas:** `api/chat`, `api/relatorios` e `api/dados/catalogo`. Confira se o painel não tem rotas com esses nomes.
-
-### Front-end (Angular do painel)
-
-1. Copiar `frontend/src/app/chat-relatorio/` para `src/app/` do painel.
-2. No fim da página do dashboard, como último card (já segue o visual dos cards do painel: fundo branco, título
-   centralizado, menu ☰, verde do painel; a fonte é herdada da página):
-   ```html
-   <app-chat-relatorio [municipio]="municipioSelecionado" />
-   ```
-   `municipio` aceita o nome ("Águas da Prata") ou o código ("aguas-da-prata"). Com ele informado, o chat não mostra
-   seletor e usa o município da página. Importe `ChatRelatorioComponent` no componente da página (standalone).
-   Altura do card: `app-chat-relatorio { --chat-altura: 640px; }` (padrão 640px). Se a página usar grid de 2 colunas,
-   faça o chat ocupar a linha inteira (`grid-column: 1 / -1`).
-3. O serviço usa `environment.baseUrl + 'api/...'`, como os serviços do painel. O download usa `HttpClient`, então passa pelo
-   interceptor de token do painel. Requer `provideHttpClient()`, que o painel já tem.
 
 ## Endpoints
 
 | Método | Rota | Uso |
 |---|---|---|
 | POST | `api/chat/iniciar` | `{ mensagem, historico[], municipio? }` → `{ id }` (processa em segundo plano; usado pela tela) |
-| GET | `api/chat/{id}` | `{ status, etapa, segundos, resultado?, erro? }` (a tela consulta a cada 1,5 s) |
+| GET | `api/chat/{id}` | `{ status, etapa, segundos, resultado?, erro? }` (a tela consulta a cada 1 s) |
 | DELETE | `api/chat/{id}` | Cancela o pedido |
 | POST | `api/chat` | Mesmo pedido, síncrono (integrações e testes; sujeito ao timeout do IIS) |
 | GET | `api/relatorios/{id}?formato=docx\|pdf` | Download do relatório |
@@ -129,7 +83,7 @@ Os prompts (`AssistenteRelatorios/Prompts/*.md`) são lidos a cada pedido, entã
 ```bash
 cd backend && dotnet run --launch-profile http        # API em http://localhost:5101 (aceita acesso pela rede)
 cd frontend && npm install && npm start               # tela em http://localhost:4200 (aceita acesso pela rede)
-cd tests && dotnet test                               # 72 testes contra o Tcudb (conexão do backend/appsettings.json ou variável TCUDB)
+cd tests && dotnet test                               # testes contra o Tcudb (conexão do backend/appsettings.json ou variável TCUDB)
 ```
 
 **Rode `dotnet test` antes de publicar qualquer alteração.** Se um teste do gabarito quebrar, os relatórios deixaram de bater com o oficial.

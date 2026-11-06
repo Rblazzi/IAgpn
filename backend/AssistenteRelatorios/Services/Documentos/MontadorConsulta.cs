@@ -233,7 +233,6 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
     /// </summary>
     public static TabelaDoc? TabelaAnos(TabelaPlanejada t, ResultadoConsulta r)
     {
-        int Indice(string? campo) => campo == null ? -1 : r.Colunas.FindIndex(c => string.Equals(c, campo, StringComparison.OrdinalIgnoreCase));
         ColunaPlanejada? Plan(int i) => t.Colunas.FirstOrDefault(c => string.Equals(c.Campo, r.Colunas[i], StringComparison.OrdinalIgnoreCase)
                                                                     && c.Formato is not ("participacao" or "variacao"));
         string Rot(int i) => Plan(i)?.Rotulo is { Length: > 0 } x ? x.ToUpper(Fmt.PtBr) : r.Colunas[i].Replace('_', ' ').ToUpper(Fmt.PtBr);

@@ -1,5 +1,5 @@
 import { Component } from '@angular/core';
-import { ChatRelatorioComponent } from './chat-relatorio/chat-relatorio.component';
+import { ChatRelatorioComponent } from './chat-relatorio';
 
 /**
  * Casca de DEMONSTRAÇÃO imitando a página do painel (dashboard-receita): barra superior, cards brancos sobre

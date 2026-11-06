@@ -1,7 +1,16 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable, inject } from '@angular/core';
+import { Injectable, InjectionToken, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { environment } from '../../environments/environment';
+
+/**
+ * Endereço da API onde o módulo do backend está (com "/" no fim). Padrão: "/" (mesmo endereço do site).
+ * No painel, informar no app.config.ts:
+ *   { provide: CHAT_RELATORIO_API_URL, useValue: environment.baseUrl }
+ */
+export const CHAT_RELATORIO_API_URL = new InjectionToken<string>('CHAT_RELATORIO_API_URL', {
+  providedIn: 'root',
+  factory: () => '/',
+});
 
 export interface MensagemChat {
   papel: 'user' | 'assistant';
@@ -71,7 +80,7 @@ export interface StatusPedido {
 @Injectable({ providedIn: 'root' })
 export class ChatRelatorioService {
   private http = inject(HttpClient);
-  private baseUrl = environment.baseUrl;
+  private baseUrl = (u => u.endsWith('/') ? u : u + '/')(inject(CHAT_RELATORIO_API_URL));
 
   static readonly CHAT = 'api/chat';
   static readonly RELATORIOS = 'api/relatorios/';
