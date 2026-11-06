@@ -40,6 +40,10 @@ public class ContextoRelatorio
     public EstruturaRelatorio? Estrutura { get; set; }
     public Models.ParametrosRelatorio? Parametros { get; set; }
     public List<string> Anexos { get; set; } = [];
+    /// <summary>Títulos das seções do documento como está agora (com recuo por nível) — para editar/remover.</summary>
+    public List<string> Titulos { get; set; } = [];
+    /// <summary>Conteúdos acrescentados depois, em edições ("acrescente os gastos com combustível").</summary>
+    public List<ContextoRelatorio> Acrescimos { get; set; } = [];
 }
 
 /// <summary>Plano devolvido pelo Prompt 1 (o que fazer + consultas SQL).</summary>
@@ -65,6 +69,8 @@ public class Plano
     public ProjecaoPlanejada? Projecao { get; set; }
     /// <summary>Quem assina na última página (ex.: "Gestor responsável"). Vazio = padrão da configuração.</summary>
     public string? Assinatura { get; set; }
+    /// <summary>editar_relatorio: títulos das seções do relatório atual a remover.</summary>
+    public List<string> RemoverSecoes { get; set; } = [];
 }
 
 public class ProjecaoPlanejada

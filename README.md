@@ -71,8 +71,13 @@ Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
    relatórios da conversa. A tela envia `relatorioAnterior` (id do último relatório) no `api/chat/iniciar`.
 10. **Histórico e continuidade:** a conversa fica salva no navegador (uma por município) e continua depois de recarregar a
    página ("Nova conversa" no menu limpa). Cada relatório grava um `.contexto` ao lado dos arquivos (pedido, consultas, seções,
-   anexos); no pedido seguinte a tela envia `relatorioAnterior` e a IA recebe esse contexto para **alterar ou continuar** o
-   arquivo anterior ("mantenha a estrutura e acrescente...", "tire a seção X"), reaproveitando as mesmas consultas.
+   anexos e títulos); no pedido seguinte a tela envia `relatorioAnterior` e a IA recebe esse contexto.
+   **O usuário vai ajustando o MESMO documento** (acao `editar_relatorio`): o sistema reabre o documento salvo (JSON) e
+   - "acrescente/adicione X (no final)": a IA consulta e escreve **só o conteúdo novo**, que entra como um capítulo antes da
+     Conclusão (com tabelas e gráficos), e um parágrafo sobre o tema entra na Conclusão;
+   - "tire/remova a seção Y": remove a seção (até o próximo título do mesmo nível);
+   - o arquivo mantém o mesmo nome; o restante do documento não é refeito.
+   Um relatório novo só é gerado quando o usuário pede outro relatório ou muda a base (município, período do relatório).
 11. **Anexos (📎)** (`Services/Anexos.cs`): o usuário anexa até 5 arquivos por pedido. Word, Excel, CSV e TXT viram texto;
    PDF e imagens vão inteiros para o Gemini ler. A extensão é conferida com o conteúdo do arquivo. A IA pode transcrever
    tabelas do arquivo (`tabelaAnexo`), que recebem o mesmo padrão (coluna % e linha TOTAL), a nota "Fonte: arquivo anexado"

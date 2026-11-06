@@ -136,9 +136,17 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
                 sb.AppendLine($"- Consulta {q.Id} ({q.Objetivo}): {q.Sql}");
             if (pl.Projecao is { } pj) sb.AppendLine($"- Projeção da consulta {pj.ConsultaId} até {pj.AteMes}/{pj.AteAno} ({pj.Metrica})");
         }
-        if (c.Estrutura is { } e)
+        if (c.Estrutura is { } e && c.Titulos.Count == 0)
             sb.AppendLine("- Seções: " + string.Join(" | ", e.Secoes.Select(s => s.Titulo +
                 (s.Tabela is { } t ? $" [tabela da consulta {t.ConsultaId}]" : "") + (s.TabelaAnexo is not null ? " [tabela do anexo]" : ""))));
+        foreach (var a in c.Acrescimos)
+        {
+            sb.AppendLine($"- Acrescentado depois (pedido \"{a.Pedido}\"): {a.Titulo}");
+            foreach (var q in a.Plano?.Consultas ?? []) sb.AppendLine($"    • consulta ({q.Objetivo}): {q.Sql}");
+        }
+        if (c.Titulos.Count > 0)
+            sb.AppendLine("- Títulos do documento ATUAL, na ordem (use estes textos EXATOS em removerSecoes):\n" +
+                          string.Join("\n", c.Titulos.Select(t => "    " + t)));
         if (c.Anexos.Count > 0) sb.AppendLine($"- Usou {c.Anexos.Count} arquivo(s) anexado(s), que continuam disponíveis e vão junto deste pedido.");
         return sb.ToString();
     }
@@ -176,11 +184,19 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
     // ------------------------------------------------------------ Prompt 2: relatório por consulta
 
     public async Task<EstruturaRelatorio?> RedigirConsultaAsync(string pedido, Plano plano, IReadOnlyList<ResultadoConsulta> resultados,
-        CancellationToken ct, string? notaProjecao = null, IReadOnlyList<AnexoConteudo>? anexos = null, ContextoRelatorio? anterior = null)
+        CancellationToken ct, string? notaProjecao = null, IReadOnlyList<AnexoConteudo>? anexos = null, ContextoRelatorio? anterior = null,
+        bool acrescentar = false)
     {
         if (ia == null) return null;
-        // Alteração/continuação: a estrutura do relatório anterior vai junto para manter o que não foi pedido para mudar
-        var estruturaAnterior = anterior?.Estrutura is { } ea
+        // Alteração/continuação: a estrutura do relatório anterior vai junto para manter o que não foi pedido para mudar.
+        // Acrescentar: só o trecho novo é escrito; ele entra num documento que já existe (os títulos dele vão junto).
+        var estruturaAnterior = acrescentar
+            ? "MODO ACRESCENTAR: o relatório JÁ EXISTE e NÃO deve ser reescrito. Escreva SOMENTE o conteúdo novo pedido agora, " +
+              "que entra como um capítulo novo antes da Conclusão: `titulo` = nome do novo tema (ex.: \"Gastos com Combustíveis\"); " +
+              "`subtitulo` vazio; `introducao` = 1 parágrafo apresentando o tema; `secoes` = só as seções novas (não repita as " +
+              "existentes); `conclusao` = 1 parágrafo curto sobre o novo tema (é acrescentado à conclusão do relatório).\n" +
+              "Títulos que o documento já tem: " + string.Join(" | ", anterior?.Titulos.Select(t => t.Trim()) ?? [])
+            : anterior?.Estrutura is { } ea
             ? $"RELATÓRIO ANTERIOR DESTA CONVERSA (pedido: \"{anterior.Pedido}\") — estrutura em JSON. Se o pedido atual é uma " +
               "alteração ou continuação dele, MANTENHA as seções, títulos e textos que o usuário não pediu para mudar e aplique só " +
               "as mudanças pedidas (os ids das consultas podem ter mudado: associe pelo objetivo):\n" +
@@ -286,8 +302,10 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
         type = "OBJECT",
         properties = new Dictionary<string, object>
         {
-            ["acao"] = new { type = "STRING", @enum = new[] { "relatorio_gerencial", "relatorio_consulta", "responder", "esclarecer", "alterar_assinatura" } },
+            ["acao"] = new { type = "STRING", @enum = new[] { "relatorio_gerencial", "relatorio_consulta", "editar_relatorio", "responder", "esclarecer", "alterar_assinatura" } },
             ["mensagem"] = Str(true),
+            // editar_relatorio: títulos EXATOS das seções do relatório atual a remover
+            ["removerSecoes"] = new { type = "ARRAY", items = new { type = "STRING" } },
             ["municipio"] = Str(true), ["municipios"] = new { type = "ARRAY", items = new { type = "STRING" } }, ["ano"] = Int(), ["mesInicial"] = Int(), ["mesFinal"] = Int(), ["anoComparacao"] = Int(),
             ["incluirReceitas"] = Bool(), ["incluirDespesas"] = Bool(),
             ["titulo"] = Str(true), ["periodoDescricao"] = Str(true), ["assinatura"] = Str(true),
@@ -317,7 +335,7 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
         // e era preciso uma 2ª chamada
         required = new[] { "acao", "consultas" },
         // consultas antes dos textos: o modelo gera o SQL primeiro
-        propertyOrdering = new[] { "acao", "municipios", "consultas", "projecao", "titulo", "periodoDescricao", "municipio", "ano", "mesInicial", "mesFinal",
+        propertyOrdering = new[] { "acao", "municipios", "removerSecoes", "consultas", "projecao", "titulo", "periodoDescricao", "municipio", "ano", "mesInicial", "mesFinal",
             "anoComparacao", "incluirReceitas", "incluirDespesas", "assinatura", "mensagem" }
     };
 

@@ -113,8 +113,15 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
             log.LogInformation("Modo local: projeção montada com a consulta padrão ({Titulo})", plano.Titulo);
         }
 
+        // Editar sem relatório anterior na conversa = relatório novo
+        if (plano.Acao == "editar_relatorio" && anterior is null)
+            plano.Acao = plano.Consultas.Count > 0 ? "relatorio_consulta" : "esclarecer";
+
         switch (plano.Acao)
         {
+            case "editar_relatorio":
+                return await EditarRelatorioAsync(req, plano, anterior, anexos, catalogo, Valores, motor, etapa, ct);
+
             case "esclarecer":
                 return Resp(plano.Mensagem ?? "Pode detalhar o que você precisa? Ex.: \"Relatório gerencial de janeiro a maio de 2026 comparando com 2025\".", "esclarecer", motor);
 
@@ -218,7 +225,7 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 {
                     Pedido = req.Mensagem, Tipo = "consulta", Titulo = estrutura.Titulo, Plano = plano, Estrutura = estrutura,
                     Anexos = anexos.Select(a => a.Id).ToList()
-                }, ct);
+                }, doc, ct);
                 var sb = new StringBuilder($"Relatório gerado: **{estrutura.Titulo}**");
                 if (!string.IsNullOrWhiteSpace(plano.PeriodoDescricao)) sb.Append($" ({plano.PeriodoDescricao})");
                 sb.AppendLine(".");
@@ -261,7 +268,7 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 await SalvarContextoAsync(rel, new ContextoRelatorio
                 {
                     Pedido = req.Mensagem, Tipo = "gerencial", Titulo = "Relatório Gerencial", Parametros = parametros
-                }, ct);
+                }, doc, ct);
                 var resumo = ResumoGerencial(dados, plano.Mensagem, avisoLocal) +
                              $"\n• Documento com {Plural(doc.Blocos.OfType<TabelaDoc>().Count(), "tabela", "tabelas")} e " +
                              $"{Plural(doc.Blocos.OfType<GraficoDoc>().Count(), "gráfico", "gráficos")}.";
@@ -369,25 +376,100 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
     {
         if (string.IsNullOrWhiteSpace(assinatura))
             return Resp("Qual texto deve aparecer na assinatura da última página? Ex.: \"Gestor responsável\".", "esclarecer", motor);
-        var json = relatorioId is { Length: 12 } && relatorioId.All(Uri.IsHexDigit) && Directory.Exists(PastaRelatorios)
-            ? Directory.GetFiles(PastaRelatorios, $"{relatorioId}__*.json").FirstOrDefault() : null;
-        if (json == null)
+        var (doc, nomeAnterior) = await CarregarDocumentoAsync(relatorioId, ct);
+        if (doc is null)
             return Resp("Não encontrei o relatório anterior desta conversa para alterar. Gere o relatório novamente informando " +
                         $"a assinatura, por exemplo: \"... assinado por {assinatura}\".", "esclarecer", motor);
-
-        var doc = System.Text.Json.JsonSerializer.Deserialize<Documento>(await File.ReadAllTextAsync(json, ct), JsonDoc)!;
         doc.TrocarAssinatura(assinatura);
-        var nomeAnterior = System.Text.RegularExpressions.Regex.Replace(
-            Path.GetFileNameWithoutExtension(json)[(relatorioId!.Length + 2)..], @" - \d{2}-\d{2}-\d{4}$", "");
         var rel = await SalvarAsync(doc, nomeAnterior, ct);
         // O novo arquivo herda o contexto do anterior (a conversa continua podendo alterá-lo)
-        if (await CarregarContextoAsync(relatorioId, ct) is { } ctxAnterior) await SalvarContextoAsync(rel, ctxAnterior, ct);
+        if (await CarregarContextoAsync(relatorioId, ct) is { } ctxAnterior) await SalvarContextoAsync(rel, ctxAnterior, doc, ct);
         return Resp($"Relatório atualizado: **{nomeAnterior}**.\n• Assinatura na última página: {assinatura}", "relatorio", motor, null, rel);
     }
 
-    /// <summary>Contexto do relatório (pedido, plano, estrutura, anexos) ao lado dos arquivos: {id}__{nome}.contexto</summary>
-    async Task SalvarContextoAsync(RelatorioGerado rel, ContextoRelatorio c, CancellationToken ct)
+    /// <summary>Documento salvo (JSON) do relatório e o nome base do arquivo (sem a data), para editar e salvar de novo.</summary>
+    async Task<(Documento? doc, string nome)> CarregarDocumentoAsync(string? relatorioId, CancellationToken ct)
     {
+        var json = relatorioId is { Length: 12 } && relatorioId.All(Uri.IsHexDigit) && Directory.Exists(PastaRelatorios)
+            ? Directory.GetFiles(PastaRelatorios, $"{relatorioId}__*.json").FirstOrDefault() : null;
+        if (json == null) return (null, "");
+        var doc = System.Text.Json.JsonSerializer.Deserialize<Documento>(await File.ReadAllTextAsync(json, ct), JsonDoc);
+        var nome = System.Text.RegularExpressions.Regex.Replace(
+            Path.GetFileNameWithoutExtension(json)[(relatorioId!.Length + 2)..], @" - \d{2}-\d{2}-\d{4}$", "");
+        return (doc, nome);
+    }
+
+    /// <summary>
+    /// Edita o relatório atual da conversa em vez de criar outro: remove as seções pedidas e/ou acrescenta o conteúdo novo
+    /// (consultas + texto da IA só do trecho novo) como um capítulo antes da Conclusão. O resto do documento não muda.
+    /// </summary>
+    async Task<ChatResponse> EditarRelatorioAsync(ChatRequest req, Plano plano, ContextoRelatorio? anterior,
+        List<AnexoConteudo> anexos, IReadOnlyList<CalculadoraRelatorio.Disponibilidade> catalogo, Func<Task<string>> valores,
+        string motor, Action<string> etapa, CancellationToken ct)
+    {
+        var (doc, nome) = await CarregarDocumentoAsync(req.RelatorioAnterior, ct);
+        if (doc is null)
+            return Resp("Não encontrei o relatório desta conversa para alterar (ele pode ter expirado). Peça o relatório novamente.", "esclarecer", motor);
+
+        var feito = new List<string>();
+        var removidas = MontadorConsulta.RemoverSecoes(doc, plano.RemoverSecoes);
+        if (removidas.Count > 0) feito.Add($"• Removido: {string.Join("; ", removidas)}");
+
+        List<ConsultaExecutada>? executadas = null;
+        ContextoRelatorio? acrescimo = null;
+        var anexosNovos = anexos.Where(a => req.Anexos?.Contains(a.Id) == true).ToList();
+        if (plano.Consultas.Count > 0 || anexosNovos.Count > 0)
+        {
+            var resultados = new List<ResultadoConsulta>();
+            if (plano.Consultas.Count > 0)
+            {
+                etapa($"Consultando o banco de dados ({plano.Consultas.Count} consulta(s))…");
+                resultados = await ExecutarComCorrecaoAsync(req.Mensagem, plano, catalogo, valores, ct, etapa);
+                TraduzirMunicipios(resultados, catalogo);
+            }
+            executadas = resultados.Select(r => new ConsultaExecutada(r.Id, r.Objetivo, r.Sql, r.Linhas.Count, r.Erro)).ToList();
+            foreach (var c in executadas)
+                log.LogInformation("SQL {Id} ({Linhas} linhas{Erro}) — edição \"{Pedido}\": {Sql}", c.Id, c.Linhas,
+                    c.Erro is null ? "" : ", erro: " + c.Erro, req.Mensagem, c.Sql);
+            if (resultados.Count > 0 && resultados.All(r => !r.Ok) && anexosNovos.Count == 0)
+                return Resp("Não consegui consultar o banco para o conteúdo a acrescentar. Tente detalhar o tema e o período.", "erro", motor, executadas);
+
+            etapa("Redigindo o conteúdo a acrescentar…");
+            var estrutura = await ia.RedigirConsultaAsync(req.Mensagem, plano, resultados, ct, null, anexosNovos, anterior, acrescentar: true)
+                            ?? EstruturaPadrao(plano, resultados);
+            sugestoesIa = estrutura.Sugestoes;
+            var avisos = resultados.Where(r => !r.Ok).Select(r => $"A consulta \"{r.Objetivo}\" não pôde ser executada.").ToList();
+            var (parte, naoConferidos) = consulta.Montar(estrutura, plano, resultados, doc.Municipio, avisos, null, anexosNovos);
+            MontadorConsulta.Acrescentar(doc, parte);
+            feito.Add($"• Acrescentado: **{estrutura.Titulo}** ({Plural(estrutura.Secoes.Count, "seção", "seções")}, " +
+                      $"{Plural(parte.Blocos.OfType<TabelaDoc>().Count(), "tabela", "tabelas")} e " +
+                      $"{Plural(parte.Blocos.OfType<GraficoDoc>().Count(), "gráfico", "gráficos")}), antes da Conclusão");
+            if (naoConferidos.Count > 0)
+                feito.Add($"⚠ Confira no documento estes valores, que não aparecem diretamente nas consultas nem no arquivo anexado: {string.Join("; ", naoConferidos.Select(v => "R$ " + v))}.");
+            if (anexosNovos.Count > 0) feito.Add($"• Arquivo(s) considerado(s): {string.Join(", ", anexosNovos.Select(a => a.Nome))}");
+            acrescimo = new ContextoRelatorio { Pedido = req.Mensagem, Tipo = "consulta", Titulo = estrutura.Titulo, Plano = plano, Estrutura = estrutura };
+        }
+        if (plano.Assinatura is { } quem) { doc.TrocarAssinatura(quem); feito.Add($"• Assinatura na última página: {quem}"); }
+
+        if (feito.Count == 0)
+            return Resp("Não identifiquei o que alterar no relatório atual. Diga, por exemplo: \"acrescente os gastos com combustível " +
+                        "no final\" ou \"tire a seção de rubricas\".", "esclarecer", motor);
+
+        etapa("Gerando os arquivos Word e PDF…");
+        var rel = await SalvarAsync(doc, nome, ct);
+        var ctx = anterior ?? new ContextoRelatorio { Pedido = req.Mensagem, Titulo = nome };
+        if (acrescimo is not null) ctx.Acrescimos.Add(acrescimo);
+        ctx.Anexos = ctx.Anexos.Union(anexosNovos.Select(a => a.Id)).ToList();
+        await SalvarContextoAsync(rel, ctx, doc, ct);
+        log.LogInformation("Relatório editado ({Nome}): {Feito}", nome, string.Join(" | ", feito));
+        if (plano.Mensagem is { Length: > 0 } m) feito.Add(m);
+        return Resp($"Relatório atualizado: **{nome}**.\n" + string.Join("\n", feito), "relatorio", motor, executadas, rel);
+    }
+
+    /// <summary>Contexto do relatório (pedido, plano, estrutura, anexos) ao lado dos arquivos: {id}__{nome}.contexto</summary>
+    async Task SalvarContextoAsync(RelatorioGerado rel, ContextoRelatorio c, Documento doc, CancellationToken ct)
+    {
+        c.Titulos = MontadorConsulta.Titulos(doc);
         try
         {
             await File.WriteAllTextAsync(Path.Combine(PastaRelatorios, $"{rel.Id}__{rel.NomeArquivo}.contexto"),

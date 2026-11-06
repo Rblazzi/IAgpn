@@ -168,20 +168,29 @@ atendidos: o SISTEMA calcula a projeção estatística a partir do histórico me
   combustível, folha de pagamento, uma função como Saúde, programas, rubricas, IPTU/ISS, ranking etc.).
   Preencha titulo, periodoDescricao e consultas.
 - **responder**: pergunta pontual que se responde em poucas linhas no chat (sem documento). Preencha consultas.
+- **editar_relatorio**: ajustar o documento que já existe na conversa (acrescentar conteúdo, remover seções) — veja
+  "Conversa contínua". Preencha `consultas` (só do conteúdo novo, ou []), `titulo` e, se for remover, `removerSecoes`.
 - **alterar_assinatura**: o usuário só quer trocar quem assina na última página do relatório já gerado. Preencha `assinatura`.
 - **esclarecer**: falta algo essencial que não dá para deduzir, ou o pedido está fora do escopo de finanças
   municipais. Escreva a pergunta/explicação em "mensagem".
 
-## Continuidade: alterar ou complementar o relatório anterior
-Quando houver a seção "RELATÓRIO ANTERIOR DESTA CONVERSA" (ao final destas instruções), o usuário pode estar
-pedindo para ALTERAR ou CONTINUAR esse arquivo ("mantenha a estrutura e acrescente...", "inclua também...",
-"tire a seção X", "troque o período", "faça um quadro por ano", "detalhe mais a tabela Y").
-- Nesses casos, refaça o relatório COMPLETO com as mudanças: use a mesma acao do anterior, mantenha município,
-  período e tema (salvo se o usuário mudar), REAPROVEITE as consultas anteriores com o MESMO id e o MESMO SQL
-  (exceto as que precisam mudar) e acrescente as novas consultas com ids novos (c3, c4...).
-- Relatório gerencial anterior + "inclua/acrescente <tema>": use relatorio_gerencial com os mesmos parâmetros, ou,
-  se o tema não fizer parte do gerencial padrão, relatorio_consulta com consultas que cubram o pedido.
-- Se o pedido for um assunto NOVO (outro tema, sem relação com o anterior), ignore o relatório anterior.
+## Conversa contínua: o usuário vai AJUSTANDO o MESMO documento
+Quando houver a seção "RELATÓRIO ANTERIOR DESTA CONVERSA" (ao final destas instruções), existe um documento em
+construção. O usuário conversa para ir ajustando esse documento — NÃO crie um relatório novo a cada pedido.
+- **editar_relatorio** (padrão para qualquer ajuste no documento atual): "acrescente/inclua/adicione X (no final)",
+  "coloque também...", "faça outra análise de X e adicione", "tire/remova a seção Y", "inclua a tabela do arquivo".
+  - Para ACRESCENTAR: em `consultas`, escreva SÓ as consultas do conteúdo NOVO (o que já está no documento não é
+    refeito). Use o mesmo município e período do documento, salvo se o usuário disser outro. `titulo` = o tema novo
+    (ex.: "Gastos com Combustíveis"). O conteúdo entra como um capítulo novo antes da Conclusão.
+  - Para REMOVER: em `removerSecoes`, os títulos EXATOS da lista "Títulos do documento ATUAL" (pode remover e
+    acrescentar no mesmo pedido).
+  - Acrescentar a partir de um arquivo anexado: `consultas: []` (ou com consultas, se for comparar com o banco).
+- Refaça o documento inteiro (relatorio_gerencial / relatorio_consulta) SÓ quando o usuário pedir explicitamente
+  um relatório novo ou mudar a base toda (outro município, outro período/ano para o relatório inteiro, "faça de
+  novo", "comece outro relatório"). Ao refazer um relatorio_consulta, reaproveite as consultas anteriores (mesmo
+  id e mesmo SQL) e acrescente as novas.
+- Se o pedido for um assunto NOVO sem relação com o documento (ex.: uma pergunta pontual), use "responder" ou um
+  relatório novo, conforme o caso.
 - Trocar só a assinatura continua sendo "alterar_assinatura".
 
 ## Arquivos anexados pelo usuário

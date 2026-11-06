@@ -161,6 +161,63 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
 
     [GeneratedRegex(@"\d{1,3}(?:\.\d{3})*,\d{2}")] private static partial Regex RegexNumeroBr();
 
+    // ------------------------------------------------------------ edição de um documento já gerado
+
+    static int IndiceConclusao(Documento d) =>
+        d.Blocos.FindLastIndex(b => b is Titulo { Nivel: 1 } t && t.Texto.Trim().Equals("Conclusão", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Acrescenta ao documento existente o conteúdo de <paramref name="novo"/> (montado só com o trecho pedido): o capítulo
+    /// (título, introdução, seções, tabelas e gráficos) entra antes da Conclusão, e o parágrafo de conclusão do novo tema
+    /// entra na Conclusão, antes do parágrafo fixo "caráter puramente quantitativo". O resto do documento não muda.
+    /// </summary>
+    public static void Acrescentar(Documento destino, Documento novo)
+    {
+        var fimNovo = IndiceConclusao(novo);
+        if (fimNovo < 0) fimNovo = novo.Blocos.Count;
+        var capitulo = novo.Blocos.Take(fimNovo).ToList();
+        // Conclusão do novo tema: parágrafos entre o título "Conclusão" e o parágrafo fixo
+        var conclusaoNova = novo.Blocos.Skip(fimNovo + 1)
+            .TakeWhile(b => b is Paragrafo p && p.Texto != MontadorGerencial.ParagrafoQuantitativo)
+            .ToList();
+
+        var iConclusao = IndiceConclusao(destino);
+        if (iConclusao < 0) iConclusao = destino.Blocos.Count;
+        destino.Blocos.InsertRange(iConclusao, capitulo);
+
+        var iFixo = destino.Blocos.FindIndex(b => b is Paragrafo p && p.Texto == MontadorGerencial.ParagrafoQuantitativo);
+        if (iFixo >= 0) destino.Blocos.InsertRange(iFixo, conclusaoNova);
+    }
+
+    /// <summary>
+    /// Remove do documento as seções com esses títulos (sem diferenciar maiúsculas/acentos): do título até o próximo
+    /// título do mesmo nível ou acima. A Conclusão e o encerramento não podem ser removidos. Devolve os títulos removidos.
+    /// </summary>
+    public static List<string> RemoverSecoes(Documento d, IEnumerable<string> titulos)
+    {
+        static string N(string s) => new string(s.Normalize(System.Text.NormalizationForm.FormD)
+            .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            .ToArray()).Trim().ToLowerInvariant();
+        var removidos = new List<string>();
+        foreach (var alvo in titulos.Where(t => !string.IsNullOrWhiteSpace(t)).Select(N).Distinct())
+        {
+            if (alvo == "conclusao") continue;
+            var i = d.Blocos.FindIndex(b => b is Titulo t && N(t.Texto) == alvo);
+            if (i < 0) i = d.Blocos.FindIndex(b => b is Titulo t && N(t.Texto).Contains(alvo));
+            if (i < 0 || i >= IndiceConclusao(d) && IndiceConclusao(d) >= 0) continue;
+            var t0 = (Titulo)d.Blocos[i];
+            var fim = d.Blocos.FindIndex(i + 1, b => b is Titulo t && t.Nivel <= t0.Nivel);
+            if (fim < 0) fim = d.Blocos.Count;
+            d.Blocos.RemoveRange(i, fim - i);
+            removidos.Add(t0.Texto);
+        }
+        return removidos;
+    }
+
+    /// <summary>Títulos do documento na ordem, com recuo por nível (vão no contexto para a IA editar).</summary>
+    public static List<string> Titulos(Documento d) =>
+        d.Blocos.OfType<Titulo>().Select(t => new string(' ', (t.Nivel - 1) * 2) + t.Texto).ToList();
+
     /// <summary>
     /// Colunas da tabela do anexo no formato do montador: 1ª = texto; com "R$" = moeda; em % = percentual;
     /// números = numero; o resto = texto. Assim ela recebe a coluna % no fim e a linha TOTAL como as do banco.
