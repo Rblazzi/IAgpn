@@ -64,6 +64,29 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
                 Fonte = 7.5,
                 Nota = $"{meses}. Meses já passados sem dados completos publicados não são estimados."
             });
+
+            // Simulação "e se": tendência × simulado e o impacto em R$ e % (calculado pelo sistema)
+            var iSim = pa.Colunas.IndexOf("total_estimado_simulado");
+            if (iSim >= 0)
+            {
+                var linhasSim = pa.Linhas.Where(l => l[iSim] is not null && ExecutorSql.ParaDecimal(l[iSim + 1]) != 0).Select(l =>
+                {
+                    var (tend, simu) = (ExecutorSql.ParaDecimal(l[4]), ExecutorSql.ParaDecimal(l[iSim]));
+                    return new[] { Convert.ToString(l[0]) ?? "", Fmt.Moeda(tend), Fmt.Moeda(simu), Fmt.Moeda(simu - tend),
+                                   Fmt.Pct(tend == 0 ? null : (simu - tend) / tend * 100m) };
+                }).ToList();
+                if (linhasSim.Count > 0)
+                {
+                    string[] cabSim = ["ANO", "ESTIMATIVA (TENDÊNCIA)", "CENÁRIO SIMULADO", "IMPACTO (R$)", "IMPACTO %"];
+                    doc.Tab(new TabelaDoc
+                    {
+                        Titulo = "SIMULAÇÃO DE CENÁRIO (E SE...)", Cabecalho = cabSim, Linhas = linhasSim, CentralizarPrimeira = true,
+                        Larguras = MontadorGerencial.LargurasAuto(linhasSim, 8, minPorTexto: 10, cabecalho: cabSim), Fonte = 8,
+                        ColunasVariacao = [3, 4],
+                        Nota = "Cenário hipotético pedido pelo usuário, aplicado sobre a estimativa de tendência; não é previsão oficial."
+                    });
+                }
+            }
         }
 
         // Estudo estatístico (média da amostra, desvio padrão, margem de erro) — inserido pelo sistema

@@ -88,6 +88,20 @@ public class ProjecaoPlanejada
     public int AteMes { get; set; } = 12;
     /// <summary>O que está sendo projetado, ex.: "Despesa empenhada com Saúde".</summary>
     public string Metrica { get; set; } = "";
+    /// <summary>Simulação "e se" pedida pelo usuário (ex.: ICMS cai 5% no próximo trimestre). O sistema calcula.</summary>
+    public SimulacaoPlanejada? Simulacao { get; set; }
+}
+
+/// <summary>Cenário simulado: variação de X% sobre a tendência, nos meses projetados do intervalo (vazio = todos).</summary>
+public class SimulacaoPlanejada
+{
+    public decimal Percentual { get; set; }
+    public int? DeAno { get; set; }
+    public int? DeMes { get; set; }
+    public int? AteAno { get; set; }
+    public int? AteMes { get; set; }
+    /// <summary>Como o usuário descreveu, ex.: "queda de 5% no ICMS no próximo trimestre".</summary>
+    public string Descricao { get; set; } = "";
 }
 
 public class ConsultaPlanejada

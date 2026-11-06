@@ -84,6 +84,23 @@ public class DadosRelatorio
     public DadosDespesa? Despesa { get; set; }
     public DadosComparativo? Comparativo { get; set; }
     public List<string> Avisos { get; } = [];
+    /// <summary>Pontos de atenção calculados pelo sistema (indicadores automáticos, sem IA). Null = não calculados.</summary>
+    public PontosAtencao? Pontos { get; set; }
+}
+
+/// <summary>Um indicador que passou do limite: o que é, o detalhe (com os números) e o valor principal.</summary>
+public record PontoAtencao(string Ponto, string Detalhe, string Valor);
+
+/// <summary>
+/// Indicadores automáticos para acompanhamento da gestão (não indicam irregularidade): saltos de credores e elementos
+/// de despesa, concentração, dispensa de licitação, empenhos no fim do mês e execução financeira.
+/// </summary>
+public class PontosAtencao
+{
+    public List<PontoAtencao> Itens { get; } = [];
+    /// <summary>Credores/elementos com maior salto (base × atual) — vira o gráfico da seção.</summary>
+    public List<ItemComparativo> Saltos { get; } = [];
+    public int? AnoBase { get; init; }
 }
 
 public static class Fmt

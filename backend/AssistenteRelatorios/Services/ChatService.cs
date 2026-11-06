@@ -27,7 +27,7 @@ public record ChatResponse(string Resposta, RelatorioGerado? Relatorio, Parametr
 /// </summary>
 public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, ExecutorSql sql, EsquemaConsulta esquema,
     MontadorGerencial gerencial, MontadorConsulta consulta, RenderizadorDocx docx, RenderizadorPdf pdf,
-    IFonteBrasao brasoes, Anexos anexosSvc, IOptions<RelatorioOptions> opt, IWebHostEnvironment env, ILogger<ChatService> log)
+    IFonteBrasao brasoes, Anexos anexosSvc, IndicadoresAtencao indicadores, IOptions<RelatorioOptions> opt, IWebHostEnvironment env, ILogger<ChatService> log)
 {
     /// <summary>Brasões dos municípios para a capa (um, ou até 3 no comparativo). Falha → capa sem brasão.</summary>
     async Task IncluirBrasoesAsync(Documento doc, IEnumerable<string> municipios, CancellationToken ct)
@@ -165,7 +165,7 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 }
 
                 // Projeção: calculada pelo SISTEMA a partir do histórico mensal (a IA só redige)
-                string? notaProjecao = null, avisoProjecao = null;
+                string? notaProjecao = null, avisoProjecao = null, linhaSimulacao = null;
                 if (plano.Projecao is { } pj)
                 {
                     etapa("Calculando a projeção a partir do histórico…");
@@ -177,8 +177,30 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                         serieMensal = serieMensal.Where(p => catalogoAtual
                             .Where(c => c.Ano == p.Ano && plano.Municipios.Contains(c.Municipio))
                             .All(c => p.Mes <= Math.Min(c.MesMaxReceita ?? 12, c.MesMaxDespesa ?? 12))).ToList();
-                    var proj = serieMensal is null ? null : Projetor.Projetar(serieMensal, pj.AteAno,
-                        pj.AteMes is >= 1 and <= 12 ? pj.AteMes : 12, DateOnly.FromDateTime(DateTime.Today));
+                    // Simulação "e se" (a IA só interpreta o pedido; o sistema calcula): padrão = todos os meses projetados
+                    var hoje = DateOnly.FromDateTime(DateTime.Today);
+                    var ateMes = pj.AteMes is >= 1 and <= 12 ? pj.AteMes : 12;
+                    Simulacao? simulacao = pj.Simulacao is { Percentual: not 0 } sp
+                        ? new Simulacao(Math.Clamp(sp.Percentual, -90m, 200m),
+                            sp.DeAno ?? hoje.Year, sp.DeMes is >= 1 and <= 12 ? sp.DeMes.Value : hoje.Month,
+                            sp.AteAno ?? pj.AteAno, sp.AteMes is >= 1 and <= 12 ? sp.AteMes.Value : ateMes,
+                            string.IsNullOrWhiteSpace(sp.Descricao) ? $"variação de {Fmt.Pct(sp.Percentual)}" : sp.Descricao.Trim())
+                        : null;
+                    // A simulação só vale em meses PROJETADOS: o intervalo começa no mês atual (passado nunca é estimado) e
+                    // termina no horizonte — assim a nota de método (que a IA lê) traz o intervalo efetivamente simulado
+                    if (simulacao is not null)
+                    {
+                        if ((simulacao.DeAno, simulacao.DeMes).CompareTo((hoje.Year, hoje.Month)) < 0)
+                            simulacao = simulacao with { DeAno = hoje.Year, DeMes = hoje.Month };
+                        if ((simulacao.AteAno, simulacao.AteMes).CompareTo((pj.AteAno, ateMes)) > 0)
+                            simulacao = simulacao with { AteAno = pj.AteAno, AteMes = ateMes };
+                        if ((simulacao.DeAno, simulacao.DeMes).CompareTo((simulacao.AteAno, simulacao.AteMes)) > 0) simulacao = null;
+                    }
+                    var proj = serieMensal is null ? null : Projetor.Projetar(serieMensal, pj.AteAno, ateMes, hoje, simulacao);
+                    if (proj is not null && simulacao is { } sa)
+                        linhaSimulacao = $"• Simulação aplicada de {Fmt.MesCurto(sa.DeMes).ToLower(Fmt.PtBr)}/{sa.DeAno} a " +
+                                         $"{Fmt.MesCurto(sa.AteMes).ToLower(Fmt.PtBr)}/{sa.AteAno} ({(sa.Percentual >= 0 ? "+" : "")}{Fmt.Pct(sa.Percentual)} " +
+                                         "sobre a tendência; meses já passados sem dados publicados não são estimados).";
                     if (proj != null)
                     {
                         var (mensal, anual, estatistica) = Projetor.ComoResultados(proj, string.IsNullOrWhiteSpace(pj.Metrica) ? "Valor" : pj.Metrica);
@@ -254,8 +276,11 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 if (naoConferidos.Count > 0)
                     sb.AppendLine($"⚠ Confira no documento estes valores, que não aparecem diretamente nas consultas nem no arquivo anexado: {string.Join("; ", naoConferidos.Select(v => "R$ " + v))}.");
                 if (anexos.Count > 0) sb.AppendLine($"• Arquivo(s) considerado(s): {string.Join(", ", anexos.Select(a => a.Nome))}");
+                if (linhaSimulacao is not null) sb.AppendLine(linhaSimulacao);
                 if (plano.Assinatura is { } quem) sb.AppendLine($"• Assinatura na última página: {quem}");
-                if (plano.Mensagem is { Length: > 0 } m) sb.AppendLine(m);
+                // A mensagem do planejamento sobre a simulação pode citar meses que não são estimados: vale a linha do sistema
+                if (plano.Mensagem is { Length: > 0 } m && !(linhaSimulacao is not null && m.Contains("simula", StringComparison.OrdinalIgnoreCase)))
+                    sb.AppendLine(m);
                 return Resp(sb.ToString().TrimEnd(), "relatorio", motor, executadas, rel);
             }
 
@@ -270,8 +295,12 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 if (erro != null) return Resp(erro, "esclarecer", motor);
 
                 etapa("Calculando receitas e despesas no banco…");
+                var codigo = catalogo.First(c => c.Municipio == parametros!.Municipio).Codigo;
+                var tarefaPontos = parametros!.IncluirDespesas ? indicadores.CalcularAsync(parametros, codigo, ct) : Task.FromResult<PontosAtencao?>(null);
                 var dados = await calc.CalcularAsync(parametros!, ct);
                 dados.Avisos.InsertRange(0, observacoes);
+                // Pontos de atenção (indicadores automáticos, calculados em paralelo com os dados do relatório)
+                if (plano.Acao != "responder") dados.Pontos = await tarefaPontos;
 
                 if (plano.Acao == "responder")
                     return Resp(ia.ResponderResumoLocal(dados), "resposta", motor) with { Parametros = parametros };

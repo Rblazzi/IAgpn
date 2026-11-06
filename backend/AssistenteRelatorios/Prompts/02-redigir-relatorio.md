@@ -130,6 +130,12 @@ participação (%) em vez do valor absoluto.
   (2) histórico realizado; (3) gráfico `linha` com `projecao_mensal`: campoCategoria `periodo`, camposValor
   ["realizado","projetado_tendencia","projetado_estavel"], nomesSeries ["Realizado","Projeção (tendência)","Projeção (estável)"];
   (4) análise: a tendência, a faixa entre os dois cenários e a margem de erro, e o que já foi realizado no ano corrente.
+- Simulação "e se" (quando houver `projetado_simulado` e `impacto_simulacao`): a tabela da simulação é inserida pelo
+  sistema. Comente o cenário como HIPÓTESE do usuário (nunca como previsão): quanto ficaria o total no cenário simulado e
+  o impacto em R$ e % em relação à tendência, usando só esses resultados. O intervalo simulado é o que está na nota
+  de PROJEÇÃO ("Cenário simulado: ... de mmm/aaaa a mmm/aaaa"): cite exatamente esse intervalo (meses passados sem
+  dados publicados nunca entram na simulação). No gráfico `linha` de `projecao_mensal`, inclua
+  também a série `projetado_simulado` ("Cenário simulado").
 - Recomende acompanhar mensalmente e revisar a projeção a cada novo mês de dados; cite fatores que podem alterá-la
   (reajustes, novos contratos, sazonalidade, decisões orçamentárias).
 

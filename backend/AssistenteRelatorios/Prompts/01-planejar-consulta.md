@@ -158,6 +158,11 @@ atendidos: o SISTEMA calcula a projeção estatística a partir do histórico me
 - "Percentual de gastos reais/realizados" = quanto do total estimado do ano já foi efetivamente realizado — o
   sistema já calcula (`percentual_realizado`). Para "participação no total", inclua outra consulta com o total.
 - Horizonte máximo: 3 anos à frente. Projeções exigem ao menos 1 ano completo de histórico.
+- **Simulação "e se"** ("e se a receita de ICMS cair 5% no próximo trimestre?", "e se a folha tiver reajuste de 4% a
+  partir de março?"): faça a projeção normal do tema (consulta do histórico mensal) e preencha `projecao.simulacao` com
+  `percentual` (negativo para queda, ex.: -5), o intervalo em que vale (`deAno`/`deMes` a `ateAno`/`ateMes`; vazio = todos
+  os meses projetados) e `descricao` com as palavras do usuário. O SISTEMA calcula o cenário simulado sobre a tendência e o
+  impacto em R$; você nunca calcula. "Próximo trimestre" = os 3 meses seguintes ao mês atual.
 - Projeção é SÓ para o futuro (a partir do mês atual). Do mês atual para trás só existem dados realizados: se o
   usuário pedir valores de um período passado que não está no banco, NÃO projete — informe até quando há dados.
 

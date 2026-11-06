@@ -5,10 +5,14 @@ namespace RelatorioIA.Api.Services.Consultas;
 public record PontoMensal(int Ano, int Mes, decimal Valor);
 
 /// <summary>SemDados = mês que JÁ PASSOU mas ainda não foi publicado pelo TCESP: não recebe valor nenhum (nem estimado).</summary>
-public record MesProjetado(int Ano, int Mes, decimal? Realizado, decimal? Tendencia, decimal? Estavel, bool SemDados = false);
+public record MesProjetado(int Ano, int Mes, decimal? Realizado, decimal? Tendencia, decimal? Estavel, bool SemDados = false,
+    decimal? Simulado = null);
+
+/// <summary>Simulação "e se": variação de <see cref="Percentual"/>% sobre a tendência nos meses projetados do intervalo.</summary>
+public record Simulacao(decimal Percentual, int DeAno, int DeMes, int AteAno, int AteMes, string Descricao);
 
 public record AnoProjetado(int Ano, decimal Realizado, decimal TotalTendencia, decimal TotalEstavel, int MesesRealizados,
-    int MesesSemDados = 0, decimal? MargemErro = null)
+    int MesesSemDados = 0, decimal? MargemErro = null, decimal? TotalSimulado = null)
 {
     /// <summary>% do total estimado (tendência) que já foi realizado.</summary>
     public decimal? PercentualRealizado => TotalTendencia == 0 ? null : Realizado / TotalTendencia * 100m;
@@ -31,8 +35,9 @@ public record ResultadoProjecao(List<MesProjetado> Meses, List<AnoProjetado> Ano
 /// Projeção mensal SIMPLES e explicável (determinística — a IA nunca calcula projeções):
 ///  • Taxa de crescimento g = MEDIANA das variações mês a mês (mesmo mês do último ano × ano anterior) — resistente a
 ///    picos isolados (ex.: empenhos globais/estimativos concentrados no início do ano).
-///  • Cenário tendência: mês futuro = mesmo mês do ano anterior (realizado ou referência) × (1 + g).
-///  • Cenário estável:   mês futuro = mesmo mês do ano anterior (sem crescimento).
+///  • Cenário tendência: mês futuro = média do mesmo mês nos últimos até 3 anos realizados, cada um levado ao nível do
+///    ano projetado por (1 + g)^anos — sazonalidade média, sem repetir um pico isolado de um único ano.
+///  • Cenário estável:   a mesma média, no nível do último ano realizado (sem crescimento).
 ///  • Estudo estatístico: média, desvio padrão e margem de erro (95%) das variações mensais; a margem em R$ de cada ano
 ///    = margem da taxa × soma das bases dos meses projetados (aproximação que não acumula a incerteza entre anos).
 /// Requer pelo menos 1 ano completo de histórico. Não substitui o planejamento orçamentário oficial (LOA/PPA).
@@ -44,6 +49,10 @@ public record ResultadoProjecao(List<MesProjetado> Meses, List<AnoProjetado> Ano
 public static class Projetor
 {
     public const decimal TaxaMaxima = 1.0m;   // limita a ±100% a.a. para evitar extrapolações absurdas
+    /// <summary>Anos usados na sazonalidade média de cada mês.</summary>
+    public const int MediaAnos = 3;
+
+    static decimal Potencia(decimal b, int n) { var r = 1m; for (var i = 0; i < n; i++) r *= b; return r; }
 
     // t de Student bicaudal 95% por graus de liberdade (1..30); acima de 30 ≈ 1,96
     static readonly decimal[] T95 =
@@ -54,7 +63,9 @@ public static class Projetor
     ];
 
     /// <param name="hoje">Data de referência: meses anteriores ao mês de <paramref name="hoje"/> nunca são estimados.</param>
-    public static ResultadoProjecao? Projetar(IReadOnlyList<PontoMensal> historico, int ateAno, int ateMes, DateOnly hoje)
+    /// <param name="simulacao">Cenário "e se" (opcional): aplicado sobre a tendência só nos meses projetados do intervalo.</param>
+    public static ResultadoProjecao? Projetar(IReadOnlyList<PontoMensal> historico, int ateAno, int ateMes, DateOnly hoje,
+        Simulacao? simulacao = null)
     {
         var dados = historico.GroupBy(p => (p.Ano, p.Mes)).ToDictionary(g => g.Key, g => g.Sum(x => x.Valor));
         if (dados.Count == 0) return null;
@@ -81,6 +92,19 @@ public static class Projetor
                        $"em relação aos mesmos meses de {anoBase}";
         var est = Estatistica(razoes, g);
 
+        // Fator de nível entre dois anos realizados: mediana de v(recente, m) / v(antigo, m) nos meses que os dois têm
+        var niveis = new Dictionary<(int, int), decimal>();
+        decimal Nivel(int recente, int antigo)
+        {
+            if (recente == antigo) return 1m;
+            if (niveis.TryGetValue((recente, antigo), out var n)) return n;
+            bool Real(int a, int m) => dados.ContainsKey((a, m)) && (a < ultimoAno || m <= ultimoMes);
+            var r = Enumerable.Range(1, 12).Where(m => Real(recente, m) && Real(antigo, m) && dados[(antigo, m)] > 0)
+                .Select(m => dados[(recente, m)] / dados[(antigo, m)]).OrderBy(x => x).ToList();
+            n = r.Count == 0 ? 1m : r.Count % 2 == 1 ? r[r.Count / 2] : (r[r.Count / 2 - 1] + r[r.Count / 2]) / 2;
+            return niveis[(recente, antigo)] = Math.Clamp(n, 1 - TaxaMaxima, 1 + TaxaMaxima);
+        }
+
         var tendencia = new Dictionary<(int, int), decimal>();
         var estavel = new Dictionary<(int, int), decimal>();
         var baseProjetada = new Dictionary<int, decimal>();   // ano → soma das bases dos meses projetados (para a margem)
@@ -95,15 +119,34 @@ public static class Projetor
                     meses.Add(new MesProjetado(ano, mes, real, null, null));
                     continue;
                 }
-                var baseMes = tendencia[(ano - 1, mes)];
-                var t = baseMes * (1 + g);
-                var e = estavel[(ano - 1, mes)];
+                // Sazonalidade MÉDIA: o mesmo mês nos últimos até 3 anos realizados, cada um corrigido para o nível do ano
+                // projetado pela taxa g — um pico isolado num ano (ex.: empenho global em março) não se repete inteiro
+                var reais = Enumerable.Range(1, ano - 1).Select(k => ano - k).Where(y => y >= anos[0])
+                    .Where(y => dados.ContainsKey((y, mes)) && (y < ultimoAno || mes <= ultimoMes)).Take(MediaAnos).ToList();
+                decimal t, e, baseMes;
+                if (reais.Count > 0)
+                {
+                    // Cada ano antigo vai ao nível do ano mais recente (reais[0]) pela mediana das razões mês a mês REAIS entre
+                    // os dois anos (o crescimento que de fato houve, sem se deixar levar por um pico)
+                    var nivel = reais.Average(y => dados[(y, mes)] * Nivel(reais[0], y));
+                    e = nivel;                                             // estável: no nível do último ano realizado
+                    t = nivel * Potencia(1 + g, ano - reais[0]);           // tendência: cresce g ao ano a partir dele
+                    baseMes = 1 + g == 0 ? 0 : t / (1 + g);
+                }
+                else
+                {
+                    baseMes = tendencia[(ano - 1, mes)];
+                    t = baseMes * (1 + g);
+                    e = estavel[(ano - 1, mes)];
+                }
                 tendencia[(ano, mes)] = t; estavel[(ano, mes)] = e;   // referência interna para o ano seguinte
                 if (Passado(ano, mes))
                     meses.Add(new MesProjetado(ano, mes, null, null, null, SemDados: true));   // passado: nunca estimar
                 else
                 {
-                    meses.Add(new MesProjetado(ano, mes, null, Math.Round(t, 2), Math.Round(e, 2)));
+                    var naJanela = simulacao is { } sm && (ano, mes).CompareTo((sm.DeAno, sm.DeMes)) >= 0 && (ano, mes).CompareTo((sm.AteAno, sm.AteMes)) <= 0;
+                    decimal? sim = simulacao is null ? null : Math.Round(naJanela ? t * (1 + simulacao.Percentual / 100m) : t, 2);
+                    meses.Add(new MesProjetado(ano, mes, null, Math.Round(t, 2), Math.Round(e, 2), Simulado: sim));
                     baseProjetada[ano] = baseProjetada.GetValueOrDefault(ano) + baseMes;
                 }
             }
@@ -114,7 +157,8 @@ public static class Projetor
             a.Sum(m => m.Realizado ?? m.Estavel ?? 0),
             a.Count(m => m.Realizado != null),
             a.Count(m => m.SemDados),
-            MargemDoAno(a.Key))).ToList();
+            MargemDoAno(a.Key),
+            simulacao is null ? null : a.Sum(m => m.Realizado ?? m.Simulado ?? 0))).ToList();
 
         // Ano só com dados realizados: margem zero. Ano com meses projetados: margem da taxa × base desses meses.
         decimal? MargemDoAno(int ano) =>
@@ -125,11 +169,15 @@ public static class Projetor
 
         // Nota de método SIMPLES (vai na conclusão, com pouca ênfase)
         var metodo =
-            "As projeções foram estimadas a partir do histórico mensal publicado pelo TCESP, mantendo a sazonalidade de cada " +
-            $"mês e aplicando a variação mediana observada entre os anos ({Fmt.Pct(g * 100m)})" +
+            "As projeções foram estimadas a partir do histórico mensal publicado pelo TCESP, considerando a sazonalidade média de " +
+            $"cada mês (até {MediaAnos} anos) e aplicando a variação mediana observada entre os anos ({Fmt.Pct(g * 100m)})" +
             (est is null ? ". " : $", com margem de erro de ±{Fmt.Pct(est.Margem)} e {est.Confianca}% de confiança. ") +
             (semDados.Count > 0
                 ? $"Os meses {string.Join(", ", semDados)}, ainda não publicados de forma completa, não foram estimados. "
+                : "") +
+            (simulacao is { } s2
+                ? $"Cenário simulado: {s2.Descricao} ({(s2.Percentual >= 0 ? "+" : "")}{Fmt.Pct(s2.Percentual)} sobre a tendência, de " +
+                  $"{Fmt.MesCurto(s2.DeMes).ToLower(Fmt.PtBr)}/{s2.DeAno} a {Fmt.MesCurto(s2.AteMes).ToLower(Fmt.PtBr)}/{s2.AteAno}). "
                 : "") +
             "Os valores devem ser revisados a cada novo mês de dados.";
         return new ResultadoProjecao(meses, porAno, g, baseTaxa, metodo, est);
@@ -170,19 +218,25 @@ public static class Projetor
         // seguinte for projetado; se houver meses sem dados publicados no meio, o vão fica visível no gráfico.
         var ultimoReal = p.Meses.FindLastIndex(m => m.Realizado != null);
         if (ultimoReal + 1 < p.Meses.Count && p.Meses[ultimoReal + 1].SemDados) ultimoReal = -1;
+        var sim = p.Meses.Any(m => m.Simulado != null);
         var mensal = new ResultadoConsulta
         {
             Id = "projecao_mensal",
             Objetivo = $"{metrica}: realizado e projetado por mês (tendência e estável)",
             Sql = "(calculado pelo sistema a partir do histórico)",
-            Colunas = ["periodo", "situacao", "realizado", "projetado_tendencia", "projetado_estavel"],
-            Linhas = p.Meses.Select((m, i) => new object?[]
+            Colunas = sim ? ["periodo", "situacao", "realizado", "projetado_tendencia", "projetado_estavel", "projetado_simulado"]
+                          : ["periodo", "situacao", "realizado", "projetado_tendencia", "projetado_estavel"],
+            Linhas = p.Meses.Select((m, i) =>
             {
-                $"{Fmt.MesCurto(m.Mes)}/{m.Ano}",
-                m.Realizado != null ? "Realizado" : m.SemDados ? "Sem dados publicados" : "Projetado",
-                (double?)m.Realizado,
-                i == ultimoReal ? (double?)m.Realizado : (double?)m.Tendencia,
-                i == ultimoReal ? (double?)m.Realizado : (double?)m.Estavel
+                object?[] l =
+                [
+                    $"{Fmt.MesCurto(m.Mes)}/{m.Ano}",
+                    m.Realizado != null ? "Realizado" : m.SemDados ? "Sem dados publicados" : "Projetado",
+                    (double?)m.Realizado,
+                    i == ultimoReal ? (double?)m.Realizado : (double?)m.Tendencia,
+                    i == ultimoReal ? (double?)m.Realizado : (double?)m.Estavel
+                ];
+                return sim ? [.. l, i == ultimoReal ? (double?)m.Realizado : (double?)m.Simulado] : l;
             }).ToList()
         };
         var anual = new ResultadoConsulta
@@ -190,13 +244,21 @@ public static class Projetor
             Id = "projecao_anual",
             Objetivo = $"{metrica}: totais por ano (realizado, estimativas, % já realizado e margem de erro de 95%)",
             Sql = "(calculado pelo sistema a partir do histórico)",
-            Colunas = ["ano", "meses_realizados", "meses_sem_dados", "realizado", "total_estimado_tendencia", "total_estimado_estavel",
-                       "percentual_realizado", "margem_erro", "margem_erro_percentual"],
-            Linhas = p.Anos.Select(a => new object?[]
+            Colunas = sim
+                ? ["ano", "meses_realizados", "meses_sem_dados", "realizado", "total_estimado_tendencia", "total_estimado_estavel",
+                   "percentual_realizado", "margem_erro", "margem_erro_percentual", "total_estimado_simulado", "impacto_simulacao"]
+                : ["ano", "meses_realizados", "meses_sem_dados", "realizado", "total_estimado_tendencia", "total_estimado_estavel",
+                   "percentual_realizado", "margem_erro", "margem_erro_percentual"],
+            Linhas = p.Anos.Select(a =>
             {
-                a.Ano.ToString(), (long)a.MesesRealizados, (long)a.MesesSemDados, (double)a.Realizado, (double)Math.Round(a.TotalTendencia, 2),
-                (double)Math.Round(a.TotalEstavel, 2), a.PercentualRealizado is decimal pr ? (double)Math.Round(pr, 2) : null,
-                a.MargemErro is decimal me ? (double)me : null, a.MargemPercentual is decimal mp ? (double)Math.Round(mp, 2) : null
+                object?[] l =
+                [
+                    a.Ano.ToString(), (long)a.MesesRealizados, (long)a.MesesSemDados, (double)a.Realizado, (double)Math.Round(a.TotalTendencia, 2),
+                    (double)Math.Round(a.TotalEstavel, 2), a.PercentualRealizado is decimal pr ? (double)Math.Round(pr, 2) : null,
+                    a.MargemErro is decimal me ? (double)me : null, a.MargemPercentual is decimal mp ? (double)Math.Round(mp, 2) : null
+                ];
+                return sim ? [.. l, a.TotalSimulado is decimal ts ? (double?)Math.Round(ts, 2) : null,
+                                     a.TotalSimulado is decimal ts2 ? (double?)Math.Round(ts2 - a.TotalTendencia, 2) : null] : l;
             }).ToList()
         };
         var e = p.Estatistica;

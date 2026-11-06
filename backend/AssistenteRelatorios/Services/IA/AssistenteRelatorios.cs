@@ -315,7 +315,18 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
                 properties = new Dictionary<string, object>
                 {
                     ["consultaId"] = Str(), ["campoValor"] = Str(true), ["ateAno"] = new { type = "INTEGER" },
-                    ["ateMes"] = new { type = "INTEGER" }, ["metrica"] = Str()
+                    ["ateMes"] = new { type = "INTEGER" }, ["metrica"] = Str(),
+                    // Simulação "e se" (ex.: queda de 5% no ICMS no próximo trimestre)
+                    ["simulacao"] = new
+                    {
+                        type = "OBJECT", nullable = true,
+                        properties = new Dictionary<string, object>
+                        {
+                            ["percentual"] = new { type = "NUMBER" }, ["deAno"] = Int(), ["deMes"] = Int(),
+                            ["ateAno"] = Int(), ["ateMes"] = Int(), ["descricao"] = Str()
+                        },
+                        required = new[] { "percentual", "descricao" }
+                    }
                 },
                 required = new[] { "consultaId", "ateAno", "metrica" }
             },

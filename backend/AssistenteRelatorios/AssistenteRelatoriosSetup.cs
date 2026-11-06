@@ -65,6 +65,7 @@ public static class AssistenteRelatoriosSetup
         services.AddScoped<AssistenteRelatorios>();
         services.AddScoped<ChatService>();
         services.AddSingleton<Anexos>();
+        services.AddSingleton<IndicadoresAtencao>();
         services.AddSingleton<JobsChat>();
         return services;
     }

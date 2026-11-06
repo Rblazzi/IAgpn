@@ -101,6 +101,16 @@ Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
 - **Correção automática:** se o texto da IA citar um valor em R$ que não está nos dados, o sistema pede uma vez que ela
   reescreva com os valores corretos; se ainda sobrar algum, o aviso "Confira…" continua.
 
+**Análises do sistema (sem IA nos números):**
+- **Pontos de atenção** (`Services/Consultas/IndicadoresAtencao.cs`), no fim do gerencial: credores com aumento ≥ 100%
+  (ou novos com valor relevante), elementos de despesa com aumento ≥ 50%, 5 maiores credores ≥ 50% do pago, dispensa ≥ 30%
+  do empenhado, ≥ 35% do empenhado nos 3 últimos dias dos meses (sem pessoal) e pago < 70% do empenhado. Folha e previdência
+  ficam fora dos indicadores de credor. Texto neutro: orienta o acompanhamento, não indica irregularidade.
+- **Projeção com sazonalidade média:** cada mês futuro usa a média do mesmo mês nos últimos até 3 anos, cada ano levado ao
+  nível do mais recente pela mediana das razões mês a mês reais (um pico isolado não se repete inteiro).
+- **Simulação "e se"** ("e se o ICMS cair 5% nos próximos 3 meses?"): a IA só interpreta o percentual e o período; o sistema
+  calcula o cenário simulado sobre a tendência (só em meses projetados) e o impacto em R$ e %.
+
 **Postura da IA** (`Prompts/00-identidade.md`, incluído em todos os prompts): especialista em consulta e validação dos dados
 do TCESP; acata as solicitações do operador; nunca inventa números, nomes ou textos; tom profissional; pedidos fora do
 escopo recebem a resposta de que o assistente é exclusivo para finanças públicas municipais; alterações mudam só o pedido.

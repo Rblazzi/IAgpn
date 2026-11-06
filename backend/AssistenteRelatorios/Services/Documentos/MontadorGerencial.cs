@@ -32,6 +32,7 @@ public class MontadorGerencial(IOptions<RelatorioOptions> opt)
         if (d.Receita is { } r) Receitas(doc, d, r, t, periodo);
         if (d.Despesa is { } s) Despesas(doc, d, s, t, periodo);
         if (d.Comparativo is { } c && d.Receita is { } ra && d.Despesa is { } da) Comparativo(doc, d, c, ra, da, t);
+        if (d.Pontos is { } pa) PontosDeAtencao(doc, d, pa);
 
         doc.T1("Conclusão").Textos(t.Conclusao).P(ParagrafoQuantitativo);
         Encerramento(doc, opt.Value, p.Municipio, assinatura);
@@ -262,6 +263,48 @@ public class MontadorGerencial(IOptions<RelatorioOptions> opt)
         doc.Textos(t.ComentarioFuncoesDetalhadas);
         foreach (var f in s.FuncoesDetalhadas)
             Composicao(doc, $"FUNÇÃO {f.Funcao} POR SUBFUNÇÃO - {per} - {p.Ano}", f.PorSubfuncao, "DEMAIS SUBFUNÇÕES");
+    }
+
+    /// <summary>
+    /// Pontos de atenção (indicadores automáticos do sistema, sem IA): tabela com o que passou do limite e gráfico dos
+    /// maiores aumentos (ou dos próprios indicadores). Texto neutro: orienta o acompanhamento, não indica irregularidade.
+    /// </summary>
+    static void PontosDeAtencao(Documento doc, DadosRelatorio d, PontosAtencao pa)
+    {
+        var p = d.Parametros;
+        var per = Fmt.Periodo(p.MesInicial, p.MesFinal);
+        doc.T2("Pontos de Atenção para Acompanhamento")
+           .P("Os indicadores a seguir são calculados automaticamente a partir dos dados do TCESP e destacam variações e " +
+              "concentrações que merecem acompanhamento. Eles não indicam irregularidade: servem para orientar a análise " +
+              "junto às áreas responsáveis.");
+        if (pa.Itens.Count == 0)
+        {
+            doc.P("No período analisado, nenhum dos indicadores automáticos ultrapassou os limites de acompanhamento.");
+            return;
+        }
+        var linhas = pa.Itens.Select(i => new[] { i.Ponto, i.Detalhe, i.Valor }).ToList();
+        doc.Tab(new TabelaDoc
+        {
+            Titulo = $"PONTOS DE ATENÇÃO - {per} - {p.Ano}",
+            Cabecalho = ["PONTO DE ATENÇÃO", "DETALHE", "INDICADOR"],
+            Linhas = linhas, Larguras = [27, 57, 16], Fonte = 8,
+            Nota = "Limites: aumento ≥ 100% no pago a um credor (ou credor novo) e ≥ 50% num elemento de despesa, com diferença de ao " +
+                   "menos 1% do total; 5 maiores credores ≥ 50% do pago; dispensa ≥ 30% do empenhado; ≥ 35% do empenhado nos 3 " +
+                   "últimos dias dos meses; pago < 70% do empenhado. Folha e previdência ficam fora dos indicadores de credor."
+        });
+        doc.P($"Foram identificados {pa.Itens.Count} ponto(s) de atenção no período. Recomenda-se verificar, com as áreas " +
+              "responsáveis, a justificativa de cada variação e a documentação correspondente.");
+        if (pa.Saltos.Count >= 2 && pa.AnoBase is int ab)
+            GraficoComparativo(doc, $"MAIORES AUMENTOS - {per} - {ab} × {p.Ano}", pa.Saltos, $"{ab}", $"{p.Ano}");
+        else
+        {
+            // Sem saltos para comparar: gráfico dos próprios indicadores em %
+            var pcts = pa.Itens.Select(i => (i.Ponto, v: decimal.TryParse(i.Valor.TrimEnd('%'), System.Globalization.NumberStyles.Number, Fmt.PtBr, out var x) ? x : (decimal?)null))
+                .Where(x => x.v is not null).ToList();
+            if (pcts.Count > 0)
+                doc.Grafico($"INDICADORES DE ATENÇÃO - {per} - {p.Ano}", new GraficoDados(TipoGrafico.Barras,
+                    pcts.Select(x => x.Ponto).ToArray(), [new SerieGrafico("Indicador", pcts.Select(x => (double)x.v!.Value).ToArray())], "percentual"));
+        }
     }
 
     static void Comparativo(Documento doc, DadosRelatorio d, DadosComparativo c, DadosReceita ra, DadosDespesa da, TextosRelatorio t)
