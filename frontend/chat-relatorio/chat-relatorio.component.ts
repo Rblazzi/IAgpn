@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnDestroy, ViewChild, computed, inject, input, signal } from '@angular/core';
+import { Component, ElementRef, OnDestroy, ViewChild, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ArquivoGerado, ChatRelatorioService, ChatResponse, ConsultaExecutada, Disponibilidade, MensagemChat, RelatorioGerado } from './chat-relatorio.service';
 
@@ -6,9 +6,24 @@ interface ItemConversa extends MensagemChat {
   relatorio?: RelatorioGerado | null;
   consultas?: ConsultaExecutada[] | null;
   sugestoes?: string[] | null;
+  /** Arquivos enviados junto com a mensagem do usuário (só o nome, para exibir). */
+  anexos?: string[];
   erro?: boolean;
   hora: Date;
 }
+
+/** Arquivo escolhido no 📎, enviado ao servidor antes do pedido. */
+interface AnexoPendente {
+  chave: number;
+  id?: string;
+  nome: string;
+  tamanho: number;
+  enviando: boolean;
+  erro?: string;
+}
+
+const EXTENSOES_ANEXO = ['.pdf', '.docx', '.xlsx', '.csv', '.txt', '.png', '.jpg', '.jpeg'];
+const TAMANHO_MAX_ANEXO = 10 * 1024 * 1024;
 
 @Component({
   selector: 'app-chat-relatorio',
@@ -167,12 +182,82 @@ export class ChatRelatorioComponent implements OnDestroy {
     this.menuAberto.set(false);
     if (this.carregando()) return;
     this.mensagens.set([ChatRelatorioComponent.saudacao()]);
+    this.anexos.set([]);
     this.texto = '';
   }
 
+  // ---- conversa salva neste navegador (uma por município): continua depois de recarregar a página
+  private chaveAtiva: string | null = null;
+  private chaveConversa = computed(() => `chatRelatorio.conversa.${(this.municipioAtual() ?? 'geral').toLowerCase()}`);
+  private persistencia = [
+    // Ao abrir (ou trocar de município): carrega a conversa salva
+    effect(() => {
+      const chave = this.chaveConversa();
+      untracked(() => {
+        if (chave === this.chaveAtiva || this.carregando()) return;
+        this.chaveAtiva = chave;
+        this.mensagens.set(this.lerConversa(chave));
+        this.rolar();
+      });
+    }),
+    // A cada mensagem: salva (últimas 80)
+    effect(() => {
+      const lista = this.mensagens();
+      const chave = untracked(() => this.chaveAtiva);
+      if (!chave) return;
+      try { localStorage.setItem(chave, JSON.stringify(lista.slice(-80))); } catch {}
+    }),
+  ];
+
+  private lerConversa(chave: string): ItemConversa[] {
+    try {
+      const v = JSON.parse(localStorage.getItem(chave) ?? '[]');
+      if (Array.isArray(v) && v.length > 1)
+        return v.map((m: ItemConversa) => ({ ...m, hora: new Date(m.hora) }));
+    } catch {}
+    return [ChatRelatorioComponent.saudacao()];
+  }
+
+  // ---- anexos (📎)
+  anexos = signal<AnexoPendente[]>([]);
+  enviandoAnexo = computed(() => this.anexos().some((a) => a.enviando));
+  anexosProntos = computed(() => this.anexos().filter((a) => a.id && !a.erro));
+
+  escolherArquivos(ev: Event) {
+    const campo = ev.target as HTMLInputElement;
+    const arquivos = Array.from(campo.files ?? []);
+    campo.value = '';
+    for (const arq of arquivos) {
+      if (this.anexos().length >= 5) { alert('Máximo de 5 arquivos por pedido.'); break; }
+      const ext = arq.name.slice(arq.name.lastIndexOf('.')).toLowerCase();
+      const chave = ++this.seqAnexo;
+      const erro = !EXTENSOES_ANEXO.includes(ext) ? 'tipo não aceito' : arq.size > TAMANHO_MAX_ANEXO ? 'maior que 10 MB' : undefined;
+      this.anexos.update((l) => [...l, { chave, nome: arq.name, tamanho: arq.size, enviando: !erro, erro }]);
+      if (erro) continue;
+      this.api.anexar(arq).subscribe({
+        next: (r) => this.atualizarAnexo(chave, { id: r.id, enviando: false }),
+        error: (e) => this.atualizarAnexo(chave, { enviando: false, erro: typeof e?.error === 'string' ? e.error : 'falha no envio' }),
+      });
+    }
+  }
+
+  private seqAnexo = 0;
+
+  private atualizarAnexo(chave: number, mudanca: Partial<AnexoPendente>) {
+    this.anexos.update((l) => l.map((a) => (a.chave === chave ? { ...a, ...mudanca } : a)));
+  }
+
+  removerAnexo(chave: number) {
+    this.anexos.update((l) => l.filter((a) => a.chave !== chave));
+  }
+
+  podeEnviar = computed(() => !this.carregando() && !this.enviandoAnexo());
+
   enviar(texto?: string) {
-    const msg = (texto ?? this.texto).trim();
-    if (!msg || this.carregando()) return;
+    const prontos = this.anexosProntos();
+    let msg = (texto ?? this.texto).trim();
+    if (!msg && prontos.length) msg = 'Confira o arquivo anexado.';
+    if (!msg || this.carregando() || this.enviandoAnexo()) return;
 
     // Histórico enviado à IA: só as trocas de texto anteriores (sem a saudação inicial)
     const historico: MensagemChat[] = this.mensagens()
@@ -180,7 +265,11 @@ export class ChatRelatorioComponent implements OnDestroy {
       .filter((m) => !m.erro)
       .map(({ papel, texto }) => ({ papel, texto }));
 
-    this.mensagens.update((l) => [...l, { papel: 'user', texto: msg, hora: new Date() }]);
+    // Anexos só vão no pedido digitado (não nos atalhos de sugestão)
+    const ids = texto === undefined ? prontos.map((a) => a.id!) : [];
+    const nomes = texto === undefined ? prontos.map((a) => a.nome) : [];
+    this.mensagens.update((l) => [...l, { papel: 'user', texto: msg, hora: new Date(), ...(nomes.length ? { anexos: nomes } : {}) }]);
+    if (texto === undefined) this.anexos.set([]);
     this.texto = '';
     this.carregando.set(true);
     this.iniciarTimer();
@@ -188,7 +277,7 @@ export class ChatRelatorioComponent implements OnDestroy {
 
     this.etapaServidor.set('');
     const ultimoRelatorio = [...this.mensagens()].reverse().find((m) => m.relatorio)?.relatorio?.id ?? null;
-    this.api.iniciar(msg, historico, this.municipioAtual(), ultimoRelatorio).subscribe({
+    this.api.iniciar(msg, historico, this.municipioAtual(), ultimoRelatorio, ids).subscribe({
       next: ({ id }) => this.acompanhar(id),
       error: (e) => this.falhar(e),
     });

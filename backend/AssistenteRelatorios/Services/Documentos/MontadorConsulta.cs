@@ -15,8 +15,10 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
     const int MaxLinhasTabela = 40;
 
     /// <param name="notaConclusao">Nota curta de método (ex.: projeção), exibida discretamente na conclusão.</param>
+    /// <param name="anexos">Arquivos anexados ao pedido: os números do texto deles também contam como "conferidos".</param>
     public (Documento doc, List<string> naoConferidos) Montar(EstruturaRelatorio e, Plano plano,
-        IReadOnlyList<ResultadoConsulta> resultados, string municipio, IEnumerable<string> avisos, string? notaConclusao = null)
+        IReadOnlyList<ResultadoConsulta> resultados, string municipio, IEnumerable<string> avisos, string? notaConclusao = null,
+        IReadOnlyList<AnexoConteudo>? anexos = null)
     {
         var doc = new Documento
         {
@@ -78,6 +80,15 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
             });
         var numerosDisponiveis = new HashSet<string>();
         foreach (var r in resultados.Where(r => r.Ok)) RegistrarNumeros(r, numerosDisponiveis);
+        // Números que aparecem no texto dos anexos (Word/Excel/CSV) também podem ser citados
+        foreach (var a in anexos ?? [])
+            if (a.Texto is { } txt)
+                foreach (System.Text.RegularExpressions.Match m in RegexNumeroBr().Matches(txt)) numerosDisponiveis.Add(m.Value);
+        var valoresTabelaAnexo = new List<string>();
+        void Registrar(TabelaDoc tab)
+        {
+            foreach (var linha in tab.Linhas) foreach (var c in linha) numerosDisponiveis.Add(c.Replace("R$", "").Trim(' ', '(', ')', '%'));
+        }
 
         foreach (var s in e.Secoes)
         {
@@ -87,14 +98,26 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
                 if (porId.TryGetValue(t.ConsultaId, out var r) && r.Ok)
                 {
                     if (r.Linhas.Count == 0) doc.P("Não houve registros para o critério no período analisado.", italico: true);
-                    else
-                    {
-                        var tab = TabelaAnos(t, r) ?? Tabela(t, r);
-                        doc.Tab(tab);
-                        foreach (var linha in tab.Linhas) foreach (var c in linha) numerosDisponiveis.Add(c.Replace("R$", "").Trim(' ', '(', ')', '%'));
-                    }
+                    else foreach (var tab in TabelaAnos(t, r) ?? [Tabela(t, r)]) { doc.Tab(tab); Registrar(tab); }
                 }
                 else doc.P("Dados indisponíveis para esta tabela.", italico: true);
+            }
+            // Tabela transcrita de um arquivo anexado
+            ResultadoConsulta? doAnexo = null;
+            TabelaPlanejada? planAnexo = null;
+            if (s.TabelaAnexo is { Cabecalho.Count: > 0, Linhas.Count: > 0 } tx)
+            {
+                // Os valores foram digitados pela IA: cada um precisa estar no arquivo ou nos resultados do banco
+                // (percentuais ficam de fora: podem ser calculados; a conferência é dos valores)
+                foreach (var cel in tx.Linhas.SelectMany(l => l).Where(c => c is not null && !c.TrimEnd().EndsWith('%')))
+                    foreach (System.Text.RegularExpressions.Match m in RegexNumeroBr().Matches(cel))
+                        if (!numerosDisponiveis.Contains(m.Value)) valoresTabelaAnexo.Add(m.Value);
+                // Mesmo padrão das demais tabelas (coluna % no fim, linha TOTAL, valores centralizados)
+                (doAnexo, planAnexo) = (ResultadoDoAnexo(tx), PlanejadaDoAnexo(tx));
+                var tabs = doAnexo is null ? [TabelaDoAnexo(tx)] : TabelaAnos(planAnexo, doAnexo) ?? [Tabela(planAnexo, doAnexo)];
+                var fonte = "Fonte: arquivo anexado" + (string.IsNullOrWhiteSpace(tx.Fonte) ? "." : $" — {tx.Fonte.Trim()}.");
+                tabs[^1] = tabs[^1] with { Nota = tabs[^1].Nota is { } n && !n.StartsWith("Fonte") ? $"{fonte} {n}" : fonte };
+                foreach (var tab in tabs) { doc.Tab(tab); Registrar(tab); }
             }
             doc.Textos(s.TextoDepois);
 
@@ -112,6 +135,11 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
                 dados = GraficoAutomatico(rt, ta);
                 tituloGrafico = ta.Titulo;
             }
+            if (dados is null && doAnexo is { Linhas.Count: >= 2 })
+            {
+                dados = GraficoAutomatico(doAnexo, planAnexo);
+                tituloGrafico = s.TabelaAnexo!.Titulo;
+            }
             if (dados is not null)
                 doc.Grafico((string.IsNullOrWhiteSpace(tituloGrafico) ? s.Titulo : tituloGrafico).ToUpper(Fmt.PtBr), dados);
         }
@@ -125,9 +153,98 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
         var textos = string.Join(" ", new[] { e.Introducao, e.Conclusao }
             .Concat(e.Secoes.SelectMany(s => new[] { s.TextoAntes, s.TextoDepois })));
         var naoConferidos = RegexMoeda().Matches(textos).Select(m => m.Groups[1].Value)
-            .Where(v => !numerosDisponiveis.Contains(v)).Distinct().ToList();
+            .Where(v => !numerosDisponiveis.Contains(v)).Concat(valoresTabelaAnexo).Distinct().ToList();
+        // PDF/imagem anexado: o sistema não lê os números deles, então não dá para conferir (evita falso alerta)
+        if (anexos?.Any(a => a.Binario) == true) naoConferidos.Clear();
         return (doc, naoConferidos);
     }
+
+    [GeneratedRegex(@"\d{1,3}(?:\.\d{3})*,\d{2}")] private static partial Regex RegexNumeroBr();
+
+    /// <summary>
+    /// Colunas da tabela do anexo no formato do montador: 1ª = texto; com "R$" = moeda; em % = percentual;
+    /// números = numero; o resto = texto. Assim ela recebe a coluna % no fim e a linha TOTAL como as do banco.
+    /// </summary>
+    public static TabelaPlanejada PlanejadaDoAnexo(TabelaAnexo t)
+    {
+        var r = ResultadoDoAnexo(t, 1);
+        return new TabelaPlanejada
+        {
+            ConsultaId = "anexo", Titulo = t.Titulo, LinhaTotal = true,
+            Colunas = (r?.Colunas ?? []).Select((c, i) => new ColunaPlanejada
+            {
+                Campo = c,
+                Rotulo = i < t.Cabecalho.Count ? t.Cabecalho[i] : c,
+                Formato = i == 0 ? "texto"
+                    : c.EndsWith("_perc") ? "percentual"
+                    : r!.Linhas.All(l => l[i] is null or double) && r.Linhas.Any(l => l[i] is double)
+                        ? (t.Linhas.Any(l => i < l.Count && (l[i] ?? "").Contains("R$")) ? "moeda" : "numero")
+                    : "texto"
+            }).ToList()
+        };
+    }
+
+    /// <summary>Tabela de um anexo sem números reconhecíveis: valores como a IA transcreveu, com a fonte na nota.</summary>
+    public static TabelaDoc TabelaDoAnexo(TabelaAnexo t)
+    {
+        var n = t.Cabecalho.Count;
+        var linhas = t.Linhas.Take(MaxLinhasTabela)
+            .Select(l => Enumerable.Range(0, n).Select(i => i < l.Count ? (l[i] ?? "").Trim() : "").ToArray()).ToList();
+        var cab = t.Cabecalho.Select(c => c.Trim().ToUpper(Fmt.PtBr)).ToArray();
+        var fonte = linhas.Count > 0 && linhas.Max(l => l.Max(c => c.Length)) > 18 ? 7.5 : 8.5;
+        return new TabelaDoc
+        {
+            Titulo = string.IsNullOrWhiteSpace(t.Titulo) ? null : t.Titulo.ToUpper(Fmt.PtBr),
+            Cabecalho = cab,
+            Linhas = linhas,
+            Larguras = MontadorGerencial.LargurasAuto(linhas.Append(cab).ToList(), fonte, cabecalho: cab),
+            NegritoUltimas = linhas.Count > 1 && linhas[^1][0].StartsWith("TOTAL", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
+            Fonte = fonte,
+            Nota = "Fonte: arquivo anexado" + (string.IsNullOrWhiteSpace(t.Fonte) ? "." : $" — {t.Fonte.Trim()}.") +
+                   (t.Linhas.Count > MaxLinhasTabela ? $" Exibindo {MaxLinhasTabela} de {t.Linhas.Count} linhas." : "")
+        };
+    }
+
+    /// <summary>
+    /// A tabela do anexo como "resultado de consulta" (números convertidos de "R$ 1.234,56", "12,5%"), para o gráfico
+    /// automático. A linha TOTAL fica de fora do gráfico; colunas em % ganham "_perc" no nome (não viram série em R$).
+    /// </summary>
+    public static ResultadoConsulta? ResultadoDoAnexo(TabelaAnexo t, int minLinhas = 1)
+    {
+        static decimal? Numero(string? s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            var x = s.Replace("R$", "").Replace("%", "").Replace(" ", "").Trim();
+            var neg = x.StartsWith('(') && x.EndsWith(')') || x.StartsWith('-');
+            x = x.Trim('(', ')', '-');
+            if (!RegexNumeroSimples().IsMatch(x)) return null;
+            var v = decimal.Parse(x.Replace(".", "").Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture);
+            return neg ? -v : v;
+        }
+        var linhas = t.Linhas.Where(l => l.Count > 0 && !(l[0] ?? "").Trim().StartsWith("TOTAL", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (linhas.Count < minLinhas) return null;
+        var colunas = t.Cabecalho.Select((c, i) =>
+        {
+            var nome = new string(c.Normalize(System.Text.NormalizationForm.FormD)
+                .Where(ch => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                .ToArray()).Trim().ToLowerInvariant().Replace(' ', '_');
+            var pct = c.Contains('%') || linhas.All(l => i >= l.Count || string.IsNullOrWhiteSpace(l[i]) || l[i].TrimEnd().EndsWith('%'));
+            nome = nome.Replace("%", "").Trim('_');
+            if (string.IsNullOrEmpty(nome)) nome = $"coluna{i + 1}";
+            return pct && i > 0 ? nome + "_perc" : nome;
+        }).ToList();
+        return new ResultadoConsulta
+        {
+            Id = "anexo", Objetivo = t.Titulo, Sql = "", Colunas = colunas,
+            Linhas = linhas.Select(l => colunas.Select((_, i) =>
+            {
+                var cel = i < l.Count ? l[i] : null;
+                return i > 0 && Numero(cel) is decimal d ? (object?)(double)d : cel;
+            }).ToArray()).ToList()
+        };
+    }
+
+    [GeneratedRegex(@"^\d{1,3}(\.\d{3})*(,\d+)?$|^\d+(,\d+)?$")] private static partial Regex RegexNumeroSimples();
 
     static TabelaDoc Tabela(TabelaPlanejada t, ResultadoConsulta r)
     {
@@ -231,7 +348,7 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
     /// ano, função, valor) e o "largo" (uma coluna por ano: função, pago_2024, pago_2025). Devolve null se não for
     /// comparativo entre anos.
     /// </summary>
-    public static TabelaDoc? TabelaAnos(TabelaPlanejada t, ResultadoConsulta r)
+    public static List<TabelaDoc>? TabelaAnos(TabelaPlanejada t, ResultadoConsulta r)
     {
         ColunaPlanejada? Plan(int i) => t.Colunas.FirstOrDefault(c => string.Equals(c.Campo, r.Colunas[i], StringComparison.OrdinalIgnoreCase)
                                                                     && c.Formato is not ("participacao" or "variacao"));
@@ -300,7 +417,7 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
                     val[k] = val.GetValueOrDefault(k) + ExecutorSql.ParaDecimal(l[i]);
                 }
         }
-        if (anos.Count is < 2 or > 6 || itens.Count == 0) return null;
+        if (anos.Count < 2 || anos.Count > 20 || itens.Count == 0) return null;
         itens = itens.Take(MaxLinhasTabela).ToList();
 
         string V(decimal v) => formato == "numero" ? v.ToString(v % 1 == 0 ? "N0" : "N2", Fmt.PtBr) : Fmt.Moeda(v);
@@ -309,41 +426,63 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
         // % só na evolução de cada período (2024→2025, 2025→2026): o primeiro ano não tem %.
         // "TOTAL %" (primeiro → último ano) só com 3+ anos — com 2 anos seria igual ao único %.
         var comTotalPct = anos.Count >= 3;
-        var cab = new List<string> { cabItem };
-        for (int k = 0; k < anos.Count; k++) { cab.Add(anos[k].ToString()); if (k > 0) cab.Add("%"); }
-        if (comTotalPct) cab.Add("TOTAL %");
 
-        var linhas = itens.Select(it =>
+        // Muitos anos não cabem na largura da página: a tabela continua HORIZONTAL, quebrada em blocos de até 4 anos
+        // (ex.: 2020–2023 e 2024–2026), cada bloco repetindo a 1ª coluna; o % do 1º ano de um bloco compara com o
+        // último ano do bloco anterior, e o "TOTAL %" fica no último bloco.
+        var nBlocos = (anos.Count + 3) / 4;
+        var blocos = new List<List<int>>();
+        for (int b = 0, k = 0; b < nBlocos; b++)
         {
-            var c = new List<string> { it };
-            for (int k = 0; k < anos.Count; k++)
-            {
-                var v = val.GetValueOrDefault((it, anos[k]));
-                c.Add(V(v));
-                if (k > 0) c.Add(Var(val.GetValueOrDefault((it, anos[k - 1])), v));
-            }
-            if (comTotalPct) c.Add(Var(val.GetValueOrDefault((it, anos[0])), val.GetValueOrDefault((it, anos[^1]))));
-            return c.ToArray();
-        }).ToList();
-        if (itens.Count >= 2)
-        {
-            var tot = new List<string> { "TOTAL" };
-            for (int k = 0; k < anos.Count; k++) { tot.Add(V(itens.Sum(it => val.GetValueOrDefault((it, anos[k]))))); if (k > 0) tot.Add(""); }
-            if (comTotalPct) tot.Add("");
-            linhas.Add(tot.ToArray());
+            var tam = anos.Count / nBlocos + (b < anos.Count % nBlocos ? 1 : 0);
+            blocos.Add(Enumerable.Range(k, tam).ToList());
+            k += tam;
         }
 
-        var fonte = anos.Count >= 4 ? 6.5 : anos.Count == 3 ? 7.5 : 8.5;
-        return new TabelaDoc
+        var tabelas = new List<TabelaDoc>();
+        foreach (var bloco in blocos)
         {
-            Titulo = string.IsNullOrWhiteSpace(t.Titulo) ? null : t.Titulo.ToUpper(Fmt.PtBr),
-            Cabecalho = cab.ToArray(),
-            Linhas = linhas,
-            Larguras = MontadorGerencial.LargurasAuto(linhas, fonte, cabecalho: cab.ToArray(), minPorTexto: anos.Count >= 4 ? 14 : 20),
-            NegritoUltimas = itens.Count >= 2 ? 1 : 0,
-            Fonte = fonte,
-            Nota = linhas.Any(l => l.Contains("***")) ? "Legenda: *** Sem valor no ano anterior para comparação." : null
-        };
+            var ultimo = bloco == blocos[^1];
+            var cab = new List<string> { cabItem };
+            foreach (var k in bloco) { cab.Add(anos[k].ToString()); if (k > 0) cab.Add("%"); }
+            if (ultimo && comTotalPct) cab.Add("TOTAL %");
+
+            var linhas = itens.Select(it =>
+            {
+                var c = new List<string> { it };
+                foreach (var k in bloco)
+                {
+                    var v = val.GetValueOrDefault((it, anos[k]));
+                    c.Add(V(v));
+                    if (k > 0) c.Add(Var(val.GetValueOrDefault((it, anos[k - 1])), v));
+                }
+                if (ultimo && comTotalPct) c.Add(Var(val.GetValueOrDefault((it, anos[0])), val.GetValueOrDefault((it, anos[^1]))));
+                return c.ToArray();
+            }).ToList();
+            if (itens.Count >= 2)
+            {
+                var tot = new List<string> { "TOTAL" };
+                foreach (var k in bloco) { tot.Add(V(itens.Sum(it => val.GetValueOrDefault((it, anos[k]))))); if (k > 0) tot.Add(""); }
+                if (ultimo && comTotalPct) tot.Add("");
+                linhas.Add(tot.ToArray());
+            }
+
+            var nAnos = bloco.Count;
+            var fonte = nAnos >= 4 ? 6.5 : nAnos == 3 ? 7.5 : 8.5;
+            tabelas.Add(new TabelaDoc
+            {
+                Titulo = tabelas.Count > 0 || string.IsNullOrWhiteSpace(t.Titulo) ? null : t.Titulo.ToUpper(Fmt.PtBr),
+                Cabecalho = cab.ToArray(),
+                Linhas = linhas,
+                Larguras = MontadorGerencial.LargurasAuto(linhas, fonte, cabecalho: cab.ToArray(), minPorTexto: nAnos >= 4 ? 14 : 20),
+                NegritoUltimas = itens.Count >= 2 ? 1 : 0,
+                Fonte = fonte
+            });
+        }
+        // Legenda do "***" no último bloco, se aparecer em qualquer bloco
+        if (tabelas.Any(tb => tb.Linhas.Any(l => l.Contains("***"))))
+            tabelas[^1] = tabelas[^1] with { Nota = "Legenda: *** Sem valor no ano anterior para comparação." };
+        return tabelas;
     }
 
     [GeneratedRegex(@"(?<!\d)(19|20)\d{2}(?!\d)")] private static partial Regex RegexAno();

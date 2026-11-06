@@ -8,8 +8,10 @@ using RelatorioIA.Api.Services.IA;
 namespace RelatorioIA.Api.Services;
 
 /// <summary>Municipio: o município selecionado na tela (como o "selecionar-municipio" do painel). Opcional.</summary>
-/// <param name="RelatorioAnterior">Id do último relatório gerado nesta conversa (para alterações, ex.: trocar a assinatura).</param>
-public record ChatRequest(string Mensagem, List<MensagemChat>? Historico, string? Municipio = null, string? RelatorioAnterior = null);
+/// <param name="RelatorioAnterior">Id do último relatório gerado nesta conversa (para alterar/continuar o arquivo anterior).</param>
+/// <param name="Anexos">Ids dos arquivos enviados por api/anexos para este pedido.</param>
+public record ChatRequest(string Mensagem, List<MensagemChat>? Historico, string? Municipio = null, string? RelatorioAnterior = null,
+    List<string>? Anexos = null);
 public record ArquivoGerado(string Formato, string Url, long Tamanho);
 public record RelatorioGerado(string Id, string NomeArquivo, List<ArquivoGerado> Arquivos);
 public record ConsultaExecutada(string Id, string Objetivo, string Sql, int Linhas, string? Erro);
@@ -25,7 +27,7 @@ public record ChatResponse(string Resposta, RelatorioGerado? Relatorio, Parametr
 /// </summary>
 public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, ExecutorSql sql, EsquemaConsulta esquema,
     MontadorGerencial gerencial, MontadorConsulta consulta, RenderizadorDocx docx, RenderizadorPdf pdf,
-    IFonteBrasao brasoes, IOptions<RelatorioOptions> opt, IWebHostEnvironment env, ILogger<ChatService> log)
+    IFonteBrasao brasoes, Anexos anexosSvc, IOptions<RelatorioOptions> opt, IWebHostEnvironment env, ILogger<ChatService> log)
 {
     /// <summary>Brasões dos municípios para a capa (um, ou até 3 no comparativo). Falha → capa sem brasão.</summary>
     async Task IncluirBrasoesAsync(Documento doc, IEnumerable<string> municipios, CancellationToken ct)
@@ -85,7 +87,14 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
         }
         var selecionado = Valido(req.Municipio);
 
-        var (plano, modoLocal) = await ia.PlanejarAsync(req.Mensagem, historico, catalogo, selecionado, Valores, ct);
+        // Continuidade: o relatório anterior da conversa (pedido, consultas, seções, anexos) vai para a IA
+        var anterior = await CarregarContextoAsync(req.RelatorioAnterior, ct);
+        // Anexos deste pedido + os do relatório anterior (para alterar um relatório feito com arquivo, sem reenviar)
+        var idsAnexos = (req.Anexos ?? []).Concat(anterior?.Anexos ?? []).Distinct().ToList();
+        var anexos = await anexosSvc.CarregarAsync(idsAnexos, ct);
+        if (anexos.Count > 0) log.LogInformation("Anexos no pedido: {Anexos}", string.Join(", ", anexos.Select(a => a.Nome)));
+
+        var (plano, modoLocal) = await ia.PlanejarAsync(req.Mensagem, historico, catalogo, selecionado, Valores, ct, anexos, anterior);
         planoAtual = plano;
         // Municípios envolvidos: os citados no pedido (comparativo entre cidades) ou, se nenhum, o padrão da tela
         plano.Municipios = plano.Municipios.Append(plano.Municipio).Select(Valido).OfType<string>().Distinct().ToList();
@@ -115,17 +124,22 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
             case "relatorio_consulta" or "responder" when plano.Consultas.Count > 0 && plano.Municipios.Count == 0:
                 return Resp($"Para qual município? Disponíveis: {string.Join(", ", municipios)}.", "esclarecer", motor);
 
-            case "relatorio_consulta" or "responder" when plano.Consultas.Count > 0:
+            // Com consultas ao banco, ou só sobre o(s) arquivo(s) anexado(s)
+            case "relatorio_consulta" or "responder" when plano.Consultas.Count > 0 || anexos.Count > 0:
             {
-                etapa($"Consultando o banco de dados ({plano.Consultas.Count} consulta(s))…");
-                var resultados = await ExecutarComCorrecaoAsync(req.Mensagem, plano, catalogo, Valores, ct, etapa);
+                var resultados = new List<ResultadoConsulta>();
+                if (plano.Consultas.Count > 0)
+                {
+                    etapa($"Consultando o banco de dados ({plano.Consultas.Count} consulta(s))…");
+                    resultados = await ExecutarComCorrecaoAsync(req.Mensagem, plano, catalogo, Valores, ct, etapa);
+                }
                 TraduzirMunicipios(resultados, catalogo);
                 var executadas = resultados.Select(r => new ConsultaExecutada(r.Id, r.Objetivo, r.Sql, r.Linhas.Count, r.Erro)).ToList();
                 // Auditoria: o SQL usado fica no log do servidor (não é exibido ao cliente)
                 foreach (var c in executadas)
                     log.LogInformation("SQL {Id} ({Linhas} linhas{Erro}) — pedido \"{Pedido}\": {Sql}", c.Id, c.Linhas,
                         c.Erro is null ? "" : ", erro: " + c.Erro, req.Mensagem, c.Sql);
-                if (resultados.All(r => !r.Ok))
+                if (resultados.Count > 0 && resultados.All(r => !r.Ok) && anexos.Count == 0)
                     return Resp("Não consegui consultar o banco para esse pedido (as consultas geradas falharam). " +
                                 "Tente reformular, por exemplo indicando o período e o tema.", "erro", motor, executadas);
 
@@ -172,7 +186,7 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 if (plano.Acao == "responder")
                 {
                     etapa("Escrevendo a resposta…");
-                    var (respostaIa, sugs) = await ia.ResponderAsync(req.Mensagem, historico, resultados, ct);
+                    var (respostaIa, sugs) = await ia.ResponderAsync(req.Mensagem, historico, resultados, ct, anexos);
                     sugestoesIa = sugs;
                     var texto = respostaIa ?? ListarResultados(resultados);
                     if (avisoProjecao != null) texto += "\n⚠ " + avisoProjecao;
@@ -183,12 +197,13 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 // Capa: um município, ou "A × B" no comparativo entre cidades
                 var municipio = string.Join(" × ", plano.Municipios);
                 etapa("Redigindo o relatório…");
-                var estrutura = await ia.RedigirConsultaAsync(req.Mensagem, plano, resultados, ct, notaProjecao) ?? EstruturaPadrao(plano, resultados);
+                var estrutura = await ia.RedigirConsultaAsync(req.Mensagem, plano, resultados, ct, notaProjecao, anexos, anterior)
+                                ?? EstruturaPadrao(plano, resultados);
                 sugestoesIa = estrutura.Sugestoes;
                 var avisos = resultados.Where(r => !r.Ok).Select(r => $"A consulta \"{r.Objetivo}\" não pôde ser executada.").ToList();
                 if (avisoProjecao != null) avisos.Add(avisoProjecao);
                 // Nota de método da projeção: curta, na conclusão (pedido da gerência — sem destaque no início do relatório)
-                var (doc, naoConferidos) = consulta.Montar(estrutura, plano, resultados, municipio, avisos, notaProjecao);
+                var (doc, naoConferidos) = consulta.Montar(estrutura, plano, resultados, municipio, avisos, notaProjecao, anexos);
                 if (naoConferidos.Count > 0)
                     log.LogWarning("Valores citados pela IA não encontrados nos resultados: {Valores}", string.Join(", ", naoConferidos));
 
@@ -199,13 +214,19 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 var nomeArquivo = estrutura.Titulo.StartsWith(prefixo, StringComparison.OrdinalIgnoreCase)
                     ? estrutura.Titulo : $"{prefixo} {estrutura.Titulo}";
                 var rel = await SalvarAsync(doc, nomeArquivo, ct);
+                await SalvarContextoAsync(rel, new ContextoRelatorio
+                {
+                    Pedido = req.Mensagem, Tipo = "consulta", Titulo = estrutura.Titulo, Plano = plano, Estrutura = estrutura,
+                    Anexos = anexos.Select(a => a.Id).ToList()
+                }, ct);
                 var sb = new StringBuilder($"Relatório gerado: **{estrutura.Titulo}**");
                 if (!string.IsNullOrWhiteSpace(plano.PeriodoDescricao)) sb.Append($" ({plano.PeriodoDescricao})");
                 sb.AppendLine(".");
                 sb.AppendLine($"• {Plural(estrutura.Secoes.Count, "seção", "seções")} de análise, {Plural(doc.Blocos.OfType<TabelaDoc>().Count(), "tabela", "tabelas")} " +
                               $"e {Plural(doc.Blocos.OfType<GraficoDoc>().Count(), "gráfico", "gráficos")}.");
                 if (naoConferidos.Count > 0)
-                    sb.AppendLine($"⚠ Confira no texto estes valores, que não aparecem diretamente nas consultas: {string.Join("; ", naoConferidos.Select(v => "R$ " + v))}.");
+                    sb.AppendLine($"⚠ Confira no documento estes valores, que não aparecem diretamente nas consultas nem no arquivo anexado: {string.Join("; ", naoConferidos.Select(v => "R$ " + v))}.");
+                if (anexos.Count > 0) sb.AppendLine($"• Arquivo(s) considerado(s): {string.Join(", ", anexos.Select(a => a.Nome))}");
                 if (plano.Assinatura is { } quem) sb.AppendLine($"• Assinatura na última página: {quem}");
                 if (plano.Mensagem is { Length: > 0 } m) sb.AppendLine(m);
                 return Resp(sb.ToString().TrimEnd(), "relatorio", motor, executadas, rel);
@@ -237,6 +258,10 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 log.LogInformation("Documento montado (com {N} gráficos) em {S:0.00}s", doc.Blocos.OfType<GraficoDoc>().Count(), swMontar.Elapsed.TotalSeconds);
                 await IncluirBrasoesAsync(doc, [parametros!.Municipio], ct);
                 var rel = await SalvarAsync(doc, $"{parametros.Municipio} Relatório Gerencial", ct);
+                await SalvarContextoAsync(rel, new ContextoRelatorio
+                {
+                    Pedido = req.Mensagem, Tipo = "gerencial", Titulo = "Relatório Gerencial", Parametros = parametros
+                }, ct);
                 var resumo = ResumoGerencial(dados, plano.Mensagem, avisoLocal) +
                              $"\n• Documento com {Plural(doc.Blocos.OfType<TabelaDoc>().Count(), "tabela", "tabelas")} e " +
                              $"{Plural(doc.Blocos.OfType<GraficoDoc>().Count(), "gráfico", "gráficos")}.";
@@ -355,7 +380,29 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
         var nomeAnterior = System.Text.RegularExpressions.Regex.Replace(
             Path.GetFileNameWithoutExtension(json)[(relatorioId!.Length + 2)..], @" - \d{2}-\d{2}-\d{4}$", "");
         var rel = await SalvarAsync(doc, nomeAnterior, ct);
+        // O novo arquivo herda o contexto do anterior (a conversa continua podendo alterá-lo)
+        if (await CarregarContextoAsync(relatorioId, ct) is { } ctxAnterior) await SalvarContextoAsync(rel, ctxAnterior, ct);
         return Resp($"Relatório atualizado: **{nomeAnterior}**.\n• Assinatura na última página: {assinatura}", "relatorio", motor, null, rel);
+    }
+
+    /// <summary>Contexto do relatório (pedido, plano, estrutura, anexos) ao lado dos arquivos: {id}__{nome}.contexto</summary>
+    async Task SalvarContextoAsync(RelatorioGerado rel, ContextoRelatorio c, CancellationToken ct)
+    {
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(PastaRelatorios, $"{rel.Id}__{rel.NomeArquivo}.contexto"),
+                System.Text.Json.JsonSerializer.Serialize(c, JsonIA.Opcoes), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { log.LogWarning(ex, "Não foi possível salvar o contexto do relatório"); }
+    }
+
+    async Task<ContextoRelatorio?> CarregarContextoAsync(string? relatorioId, CancellationToken ct)
+    {
+        if (relatorioId is not { Length: 12 } || !relatorioId.All(Uri.IsHexDigit) || !Directory.Exists(PastaRelatorios)) return null;
+        var arq = Directory.GetFiles(PastaRelatorios, $"{relatorioId}__*.contexto").FirstOrDefault();
+        if (arq is null) return null;
+        try { return System.Text.Json.JsonSerializer.Deserialize<ContextoRelatorio>(await File.ReadAllTextAsync(arq, ct), JsonIA.Opcoes); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { log.LogWarning(ex, "Contexto do relatório {Id} ilegível", relatorioId); return null; }
     }
 
     async Task<RelatorioGerado> SalvarAsync(Documento doc, string nomeBase, CancellationToken ct)

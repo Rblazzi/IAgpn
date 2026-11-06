@@ -64,6 +64,7 @@ public static class AssistenteRelatoriosSetup
         services.AddSingleton<AssistenteLocal>();
         services.AddScoped<AssistenteRelatorios>();
         services.AddScoped<ChatService>();
+        services.AddSingleton<Anexos>();
         services.AddSingleton<JobsChat>();
         return services;
     }
@@ -127,7 +128,8 @@ public static class AssistenteRelatoriosSetup
         if (Directory.Exists(pasta))
         {
             var dias = app.Configuration.GetValue("Relatorio:DiasManter", 30);
-            foreach (var f in Directory.GetFiles(pasta).Where(f => File.GetCreationTimeUtc(f) < DateTime.UtcNow.AddDays(-dias)))
+            // Relatórios, contextos e anexos (subpasta anexos/)
+            foreach (var f in Directory.GetFiles(pasta, "*", SearchOption.AllDirectories).Where(f => File.GetCreationTimeUtc(f) < DateTime.UtcNow.AddDays(-dias)))
                 try { File.Delete(f); } catch (IOException) { }
         }
         app.Logger.LogInformation("Assistente de Relatórios — motor de IA: {Motor}", sp.GetRequiredService<AssistenteRelatorios>().Nome);

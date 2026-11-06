@@ -36,6 +36,13 @@
       <div class="linha" [class.usuario]="m.papel === 'user'">
         <div class="balao" [class.erro]="m.erro">
           <div [innerHTML]="formatar(m.texto)"></div>
+          @if (m.anexos?.length) {
+            <div class="anexos-msg">
+              @for (n of m.anexos!; track n) {
+                <span class="anexo-msg" [title]="n">📎 {{ n }}</span>
+              }
+            </div>
+          }
 
           @if (m.relatorio; as r) {
             <div class="arquivos">
@@ -93,7 +100,21 @@
     }
   </div>
 
+  @if (anexos().length) {
+    <div class="anexos-pendentes">
+      @for (a of anexos(); track a.chave) {
+        <span class="chip-anexo" [class.erro]="a.erro" [title]="a.erro ?? a.nome">
+          📎 {{ a.nome }}
+          <small>{{ a.enviando ? 'enviando…' : a.erro ?? tamanho(a.tamanho) }}</small>
+          <button type="button" (click)="removerAnexo(a.chave)" [disabled]="carregando()" aria-label="Remover anexo">×</button>
+        </span>
+      }
+    </div>
+  }
   <form class="entrada" (ngSubmit)="enviar()">
+    <input #arquivo type="file" hidden multiple accept=".pdf,.docx,.xlsx,.csv,.txt,.png,.jpg,.jpeg" (change)="escolherArquivos($event)" />
+    <button type="button" class="btn-anexo" (click)="arquivo.click()" [disabled]="carregando()"
+            title="Anexar arquivo (PDF, Word, Excel, CSV, TXT ou imagem — até 10 MB)" aria-label="Anexar arquivo">📎</button>
     <textarea
       [(ngModel)]="texto"
       name="texto"
@@ -104,6 +125,8 @@
       (keydown)="teclado($event)"
       [disabled]="carregando()"
     ></textarea>
-    <button type="submit" class="btn-verde" [disabled]="carregando() || !texto.trim()">Enviar</button>
+    <button type="submit" class="btn-verde" [disabled]="!podeEnviar() || (!texto.trim() && !anexosProntos().length)">
+      {{ enviandoAnexo() ? 'Enviando…' : 'Enviar' }}
+    </button>
   </form>
 </section>

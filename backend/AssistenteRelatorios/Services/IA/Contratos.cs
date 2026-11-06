@@ -12,8 +12,34 @@ public record MensagemChat(string Papel, string Texto); // Papel: "user" | "assi
 public interface IModeloIA
 {
     string Nome { get; }
+    /// <param name="anexos">Arquivos enviados pelo usuário: vão junto da última mensagem (texto extraído ou o arquivo em si).</param>
     Task<JsonElement> GerarJsonAsync(string sistema, IEnumerable<(string papel, string texto)> conversa,
-        object schema, double temperatura, CancellationToken ct);
+        object schema, double temperatura, CancellationToken ct, IReadOnlyList<AnexoConteudo>? anexos = null);
+}
+
+/// <summary>
+/// Arquivo anexado pelo usuário, pronto para a IA: <see cref="Texto"/> (Word, Excel, CSV, TXT — conteúdo extraído)
+/// ou <see cref="Dados"/> + <see cref="Mime"/> (PDF e imagens vão inteiros para o modelo ler).
+/// </summary>
+public record AnexoConteudo(string Id, string Nome, string? Texto, string? Mime, byte[]? Dados)
+{
+    public bool Binario => Dados is not null;
+}
+
+/// <summary>
+/// Contexto salvo junto de cada relatório (arquivo .contexto): permite à IA alterar ou continuar o relatório
+/// anterior da conversa sem perder o que já foi feito (consultas, seções, anexos).
+/// </summary>
+public class ContextoRelatorio
+{
+    public string Pedido { get; set; } = "";
+    /// <summary>consulta | gerencial</summary>
+    public string Tipo { get; set; } = "consulta";
+    public string Titulo { get; set; } = "";
+    public Plano? Plano { get; set; }
+    public EstruturaRelatorio? Estrutura { get; set; }
+    public Models.ParametrosRelatorio? Parametros { get; set; }
+    public List<string> Anexos { get; set; } = [];
 }
 
 /// <summary>Plano devolvido pelo Prompt 1 (o que fazer + consultas SQL).</summary>
@@ -114,8 +140,20 @@ public class SecaoRelatorio
     public string Titulo { get; set; } = "";
     public string TextoAntes { get; set; } = "";
     public TabelaPlanejada? Tabela { get; set; }
+    /// <summary>Tabela transcrita de um arquivo anexado (valores exatamente como no arquivo).</summary>
+    public TabelaAnexo? TabelaAnexo { get; set; }
     public GraficoPlanejado? Grafico { get; set; }
     public string TextoDepois { get; set; } = "";
+}
+
+/// <summary>Tabela copiada pela IA de um arquivo anexado (o banco não tem esses dados).</summary>
+public class TabelaAnexo
+{
+    public string Titulo { get; set; } = "";
+    public List<string> Cabecalho { get; set; } = [];
+    public List<List<string>> Linhas { get; set; } = [];
+    /// <summary>Nome do arquivo de origem (vai na nota "Fonte: ...").</summary>
+    public string Fonte { get; set; } = "";
 }
 
 /// <summary>Gráfico pedido pela IA: o sistema desenha com os valores reais da consulta.</summary>

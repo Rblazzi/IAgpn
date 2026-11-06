@@ -24,3 +24,8 @@ demo/
 Thumbs.db
 .DS_Store
 *.log
+
+# Pacotes compactados (podem conter o appsettings.json com senha e chave)
+*.rar
+*.zip
+*.7z

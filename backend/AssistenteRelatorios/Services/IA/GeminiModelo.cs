@@ -29,12 +29,26 @@ public class GeminiModelo(HttpClient http, IOptions<GeminiOptions> opt, ILogger<
     public string Nome => $"Gemini ({o.Model})";
 
     public async Task<JsonElement> GerarJsonAsync(string sistema, IEnumerable<(string papel, string texto)> conversa,
-        object schema, double temperatura, CancellationToken ct)
+        object schema, double temperatura, CancellationToken ct, IReadOnlyList<AnexoConteudo>? anexos = null)
     {
+        var mensagens = conversa.ToList();
+        var contents = mensagens.Select((c, i) =>
+        {
+            var parts = new List<object> { new { text = c.texto } };
+            // Anexos vão na última mensagem do usuário: texto extraído (Word/Excel/CSV) ou o arquivo (PDF/imagem)
+            if (i == mensagens.Count - 1 && anexos is { Count: > 0 })
+                foreach (var a in anexos)
+                {
+                    parts.Add(new { text = $"\n=== ARQUIVO ANEXADO PELO USUÁRIO: \"{a.Nome}\" ===" + (a.Texto is null ? "" : "\n" + a.Texto) });
+                    if (a.Dados is not null)
+                        parts.Add(new { inlineData = new { mimeType = a.Mime, data = Convert.ToBase64String(a.Dados) } });
+                }
+            return new { role = c.papel == "assistant" ? "model" : "user", parts };
+        }).ToList();
         var body = new
         {
             systemInstruction = new { parts = new[] { new { text = sistema } } },
-            contents = conversa.Select(c => new { role = c.papel == "assistant" ? "model" : "user", parts = new[] { new { text = c.texto } } }).ToList(),
+            contents,
             generationConfig = new { responseMimeType = "application/json", responseSchema = schema, temperature = temperatura }
         };
 

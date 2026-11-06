@@ -33,7 +33,8 @@ Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
 
 | Método | Rota | Uso |
 |---|---|---|
-| POST | `api/chat/iniciar` | `{ mensagem, historico[], municipio? }` → `{ id }` (processa em segundo plano; usado pela tela) |
+| POST | `api/chat/iniciar` | `{ mensagem, historico[], municipio?, relatorioAnterior?, anexos[]? }` → `{ id }` (processa em segundo plano; usado pela tela) |
+| POST | `api/anexos` | Arquivo (multipart, campo `arquivo`; PDF, DOCX, XLSX, CSV, TXT, PNG, JPG até 10 MB) → `{ id, nome, tamanho }` |
 | GET | `api/chat/{id}` | `{ status, etapa, segundos, resultado?, erro? }` (a tela consulta a cada 1 s) |
 | DELETE | `api/chat/{id}` | Cancela o pedido |
 | POST | `api/chat` | Mesmo pedido, síncrono (integrações e testes; sujeito ao timeout do IIS) |
@@ -68,7 +69,18 @@ Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
    outra ("troque GPN Consultoria por Gestor responsável"): o sistema reabre o último relatório da conversa (salvo
    em JSON junto dos arquivos) e troca só essa linha, sem refazer consultas. A assinatura vale para os próximos
    relatórios da conversa. A tela envia `relatorioAnterior` (id do último relatório) no `api/chat/iniciar`.
-10. **Sem IA** (Gemini fora do ar ou sem chave): o `AssistenteLocal` interpreta o pedido por regras (relatório gerencial,
+10. **Histórico e continuidade:** a conversa fica salva no navegador (uma por município) e continua depois de recarregar a
+   página ("Nova conversa" no menu limpa). Cada relatório grava um `.contexto` ao lado dos arquivos (pedido, consultas, seções,
+   anexos); no pedido seguinte a tela envia `relatorioAnterior` e a IA recebe esse contexto para **alterar ou continuar** o
+   arquivo anterior ("mantenha a estrutura e acrescente...", "tire a seção X"), reaproveitando as mesmas consultas.
+11. **Anexos (📎)** (`Services/Anexos.cs`): o usuário anexa até 5 arquivos por pedido. Word, Excel, CSV e TXT viram texto;
+   PDF e imagens vão inteiros para o Gemini ler. A extensão é conferida com o conteúdo do arquivo. A IA pode transcrever
+   tabelas do arquivo (`tabelaAnexo`), que recebem o mesmo padrão (coluna % e linha TOTAL), a nota "Fonte: arquivo anexado"
+   e gráfico; cada valor transcrito é conferido com o arquivo e com o banco (o que não bate gera aviso). Os anexos ficam em
+   `relatorios/anexos/` e são apagados junto com os relatórios antigos.
+12. **Comparativo entre anos:** anos no cabeçalho, % de evolução entre anos seguidos e "TOTAL %"; com mais de 4 anos a
+   tabela continua horizontal, em blocos de até 4 anos.
+13. **Sem IA** (Gemini fora do ar ou sem chave): o `AssistenteLocal` interpreta o pedido por regras (relatório gerencial,
    períodos e projeção com a consulta padrão do histórico) e usa textos e comentários padrão.
 
 Os prompts (`AssistenteRelatorios/Prompts/*.md`) são lidos a cada pedido, então uma edição vale na hora.

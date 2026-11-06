@@ -67,6 +67,12 @@ export interface ChatResponse {
   sugestoes: string[] | null;
 }
 
+export interface AnexoEnviado {
+  id: string;
+  nome: string;
+  tamanho: number;
+}
+
 export interface StatusPedido {
   id: string;
   status: 'fila' | 'processando' | 'concluido' | 'erro';
@@ -88,10 +94,22 @@ export class ChatRelatorioService {
   static readonly CATALOGO = 'api/dados/catalogo';
 
   /** Inicia o pedido em segundo plano (relatórios podem levar minutos; evita timeout do IIS). */
-  /** relatorioAnterior: id do último relatório da conversa (permite alterações, ex.: trocar a assinatura). */
-  iniciar(mensagem: string, historico: MensagemChat[], municipio: string | null, relatorioAnterior: string | null = null): Observable<{ id: string }> {
-    return this.http.post<{ id: string }>(`${this.baseUrl}${ChatRelatorioService.CHAT}/iniciar`, { mensagem, historico, municipio, relatorioAnterior });
+  /** relatorioAnterior: id do último relatório da conversa (a IA altera/continua esse arquivo). */
+  /** anexos: ids devolvidos por anexar(). */
+  iniciar(mensagem: string, historico: MensagemChat[], municipio: string | null, relatorioAnterior: string | null = null,
+          anexos: string[] = []): Observable<{ id: string }> {
+    return this.http.post<{ id: string }>(`${this.baseUrl}${ChatRelatorioService.CHAT}/iniciar`,
+      { mensagem, historico, municipio, relatorioAnterior, anexos });
   }
+
+  /** Envia um arquivo (PDF, Word, Excel, CSV, TXT, PNG, JPG — até 10 MB) para usar no próximo pedido. */
+  anexar(arquivo: File): Observable<AnexoEnviado> {
+    const form = new FormData();
+    form.append('arquivo', arquivo, arquivo.name);
+    return this.http.post<AnexoEnviado>(`${this.baseUrl}${ChatRelatorioService.ANEXOS}`, form);
+  }
+
+  static readonly ANEXOS = 'api/anexos';
 
   status(id: string): Observable<StatusPedido> {
     return this.http.get<StatusPedido>(`${this.baseUrl}${ChatRelatorioService.CHAT}/${id}`);

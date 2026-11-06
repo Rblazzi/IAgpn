@@ -13,7 +13,9 @@ public class ChatController(ChatService chat, JobsChat jobs) : ControllerBase
     static string? Validar(ChatRequest req) =>
         string.IsNullOrWhiteSpace(req.Mensagem) ? "Mensagem vazia." :
         req.Mensagem.Length > 2000 ? "Mensagem muito longa (máx. 2000 caracteres)." :
-        req.Historico is { Count: > 50 } ? "Histórico muito longo." : null;
+        req.Historico is { Count: > 50 } ? "Histórico muito longo." :
+        req.Anexos is { Count: > Anexos.MaximoPorPedido } ? $"Máximo de {Anexos.MaximoPorPedido} arquivos por pedido." :
+        req.Anexos?.Any(a => !Anexos.IdValido(a)) == true ? "Anexo inválido." : null;
 
     /// <summary>Síncrono (uso em testes/integrações rápidas). Na tela, use iniciar + consultar.</summary>
     [HttpPost]
@@ -59,6 +61,22 @@ public class RelatoriosController(ChatService chat) : ControllerBase
         if (arquivo == null) return NotFound();
         var nome = Path.GetFileName(arquivo)[(id.Length + 2)..];
         return PhysicalFile(arquivo, mime!, nome);
+    }
+}
+
+[ApiController]
+[Route("api/anexos")]
+public class AnexosController(Anexos anexos) : ControllerBase
+{
+    /// <summary>Recebe um arquivo do chat (PDF, Word, Excel, CSV, TXT, PNG, JPG — até 10 MB) e devolve o id para o pedido.</summary>
+    [HttpPost]
+    [RequestSizeLimit(Anexos.TamanhoMaximo + 1024 * 1024)]
+    public async Task<ActionResult<AnexoSalvo>> Enviar(IFormFile arquivo, CancellationToken ct)
+    {
+        if (arquivo is null) return BadRequest("Nenhum arquivo enviado.");
+        await using var s = arquivo.OpenReadStream();
+        var (anexo, erro) = await anexos.SalvarAsync(arquivo.FileName, s, arquivo.Length, ct);
+        return anexo is null ? BadRequest(erro) : anexo;
     }
 }
 

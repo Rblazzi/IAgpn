@@ -140,6 +140,30 @@ button.link { padding: 0; border: 0; background: none; font: inherit; font-size:
 .entrada textarea:focus { outline: 0; border-color: #86b7fe; box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2); }
 .entrada .btn-verde { padding: 0 22px; }
 
+/* ---- anexos (📎) */
+.btn-anexo {
+  flex: none; width: 40px; font-size: 1.15rem; cursor: pointer;
+  border: 1px solid var(--borda-campo); border-radius: 4px; background: #fff;
+}
+.btn-anexo:hover:not(:disabled) { border-color: var(--verde); background: var(--verde-claro); }
+.btn-anexo:disabled { opacity: 0.55; cursor: not-allowed; }
+.anexos-pendentes { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px 0; }
+.chip-anexo {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  padding: 4px 6px 4px 10px; border: 1px solid var(--borda-campo); border-radius: 4px; background: var(--listra);
+  font-size: 0.82rem;
+}
+.chip-anexo small { color: var(--suave); white-space: nowrap; }
+.chip-anexo.erro { border-color: #f1aeb5; background: #fff5f5; }
+.chip-anexo.erro small { color: #b02a37; }
+.chip-anexo button { border: 0; background: none; font-size: 1rem; line-height: 1; cursor: pointer; color: var(--suave); }
+.chip-anexo button:hover:not(:disabled) { color: #b02a37; }
+.anexos-msg { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.anexo-msg {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.2); font-size: 0.8rem;
+}
+
 @media (max-width: 600px) {
   .card-topo { padding: 10px 44px 8px; }
   .balao, .continuar { max-width: 94%; }

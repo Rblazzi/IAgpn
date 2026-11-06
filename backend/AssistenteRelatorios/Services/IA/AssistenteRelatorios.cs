@@ -55,28 +55,32 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
 
     // ------------------------------------------------------------ Prompt 1: planejar
 
+    /// <param name="anexos">Arquivos enviados com o pedido (a IA lê o conteúdo).</param>
+    /// <param name="anterior">Contexto do último relatório da conversa (para alterar ou continuar o arquivo anterior).</param>
     public async Task<(Plano plano, bool local)> PlanejarAsync(string mensagem, IReadOnlyList<MensagemChat> historico,
         IReadOnlyList<CalculadoraRelatorio.Disponibilidade> catalogo, string? municipioSelecionado,
-        Func<Task<string>> valoresDistintos, CancellationToken ct)
+        Func<Task<string>> valoresDistintos, CancellationToken ct,
+        IReadOnlyList<AnexoConteudo>? anexos = null, ContextoRelatorio? anterior = null)
     {
         if (ia == null) return (local.Planejar(mensagem, catalogo), true);
         try
         {
-            var sistema = await SistemaPlanejarAsync(catalogo, valoresDistintos, municipioSelecionado);
-            var conversa = historico.TakeLast(10).Select(h => (h.Papel, h.Texto)).Append(("user", mensagem));
-            var json = await ia.GerarJsonAsync(sistema, conversa, SchemaPlano, 0.1, ct);
+            var sistema = await SistemaPlanejarAsync(catalogo, valoresDistintos, municipioSelecionado) + DescreverAnterior(anterior);
+            var conversa = historico.TakeLast(12).Select(h => (h.Papel, h.Texto)).Append(("user", mensagem));
+            var json = await ia.GerarJsonAsync(sistema, conversa, SchemaPlano, 0.1, ct, anexos);
             log.LogDebug("Plano bruto da IA: {Json}", Truncar(json.GetRawText(), 2500));
             var plano = json.Deserialize<Plano>(JsonIA.Opcoes) ?? new Plano();
 
             // Plano que exige SQL mas veio sem consultas (acontece com modelos "lite"): pede de novo, explicitamente
-            if (plano.Acao is "relatorio_consulta" or "responder" && plano.Consultas.Count == 0)
+            // (com anexo, um relatório/resposta só sobre o arquivo não precisa de consultas)
+            if (plano.Acao is "relatorio_consulta" or "responder" && plano.Consultas.Count == 0 && anexos is not { Count: > 0 })
             {
                 log.LogWarning("Plano {Acao} veio sem consultas; pedindo novamente à IA", plano.Acao);
                 // Segunda chamada com formato mínimo: só a lista de consultas
                 var pedido = $"Pedido do usuário: {mensagem}\nTema: {plano.Titulo}\nPeríodo: {plano.PeriodoDescricao}\n\n" +
                              "Escreva AGORA somente as consultas SQL (1 a 4 SELECTs nas views vw_despesas/vw_receitas) " +
                              "que trazem os dados para atender este pedido.";
-                var json2 = await ia.GerarJsonAsync(sistema, [("user", pedido)], SchemaSoConsultas, 0.1, ct);
+                var json2 = await ia.GerarJsonAsync(sistema, [("user", pedido)], SchemaSoConsultas, 0.1, ct, anexos);
                 log.LogDebug("Consultas (2ª chamada): {Json}", Truncar(json2.GetRawText(), 2500));
                 plano.Consultas = json2.Deserialize<Plano>(JsonIA.Opcoes)?.Consultas ?? [];
             }
@@ -114,6 +118,31 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
         }
     }
 
+    /// <summary>Resumo do relatório anterior para o planejamento (pedido, tipo, consultas com SQL, seções, anexos).</summary>
+    public static string DescreverAnterior(ContextoRelatorio? c)
+    {
+        if (c is null) return "";
+        var sb = new System.Text.StringBuilder("\n\n## RELATÓRIO ANTERIOR DESTA CONVERSA (o último arquivo gerado)\n");
+        sb.AppendLine($"- Pedido que o gerou: \"{c.Pedido}\"");
+        sb.AppendLine($"- Título: {c.Titulo}");
+        if (c.Tipo == "gerencial" && c.Parametros is { } p)
+            sb.AppendLine($"- Tipo: relatorio_gerencial — município {p.Municipio}, ano {p.Ano}, meses {p.MesInicial} a {p.MesFinal}" +
+                          (p.AnoComparacao is int ac ? $", comparando com {ac}" : "") +
+                          $", receitas={p.IncluirReceitas}, despesas={p.IncluirDespesas}");
+        if (c.Tipo == "consulta" && c.Plano is { } pl)
+        {
+            sb.AppendLine($"- Tipo: relatorio_consulta — municípios: {string.Join(", ", pl.Municipios)}; período: {pl.PeriodoDescricao}");
+            foreach (var q in pl.Consultas)
+                sb.AppendLine($"- Consulta {q.Id} ({q.Objetivo}): {q.Sql}");
+            if (pl.Projecao is { } pj) sb.AppendLine($"- Projeção da consulta {pj.ConsultaId} até {pj.AteMes}/{pj.AteAno} ({pj.Metrica})");
+        }
+        if (c.Estrutura is { } e)
+            sb.AppendLine("- Seções: " + string.Join(" | ", e.Secoes.Select(s => s.Titulo +
+                (s.Tabela is { } t ? $" [tabela da consulta {t.ConsultaId}]" : "") + (s.TabelaAnexo is not null ? " [tabela do anexo]" : ""))));
+        if (c.Anexos.Count > 0) sb.AppendLine($"- Usou {c.Anexos.Count} arquivo(s) anexado(s), que continuam disponíveis e vão junto deste pedido.");
+        return sb.ToString();
+    }
+
     static string Truncar(string s, int max) => s.Length <= max ? s : s[..max] + "…";
 
     /// <summary>Corta textos "disparados" pelo modelo (título vira só a 1ª frase, até 90 caracteres).</summary>
@@ -147,21 +176,33 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
     // ------------------------------------------------------------ Prompt 2: relatório por consulta
 
     public async Task<EstruturaRelatorio?> RedigirConsultaAsync(string pedido, Plano plano, IReadOnlyList<ResultadoConsulta> resultados,
-        CancellationToken ct, string? notaProjecao = null)
+        CancellationToken ct, string? notaProjecao = null, IReadOnlyList<AnexoConteudo>? anexos = null, ContextoRelatorio? anterior = null)
     {
         if (ia == null) return null;
+        // Alteração/continuação: a estrutura do relatório anterior vai junto para manter o que não foi pedido para mudar
+        var estruturaAnterior = anterior?.Estrutura is { } ea
+            ? $"RELATÓRIO ANTERIOR DESTA CONVERSA (pedido: \"{anterior.Pedido}\") — estrutura em JSON. Se o pedido atual é uma " +
+              "alteração ou continuação dele, MANTENHA as seções, títulos e textos que o usuário não pediu para mudar e aplique só " +
+              "as mudanças pedidas (os ids das consultas podem ter mudado: associe pelo objetivo):\n" +
+              Truncar(JsonSerializer.Serialize(ea, JsonIA.Opcoes), 12000)
+            : "";
+        var listaAnexos = anexos is { Count: > 0 }
+            ? "ARQUIVOS ANEXADOS: " + string.Join(", ", anexos.Select(a => a.Nome)) + " (conteúdo ao final desta mensagem)."
+            : "";
         var conteudo = $"""
             Pedido do usuário: {pedido}
             Título sugerido: {plano.Titulo}
             Período: {plano.PeriodoDescricao}
             {(notaProjecao is null ? "" : "PROJEÇÃO (calculada pelo sistema — use os resultados 'projecao_mensal' e 'projecao_anual'): " + notaProjecao)}
+            {listaAnexos}
+            {estruturaAnterior}
 
             Resultados das consultas (JSON):
             {SerializarResultados(resultados, 80)}
             """;
         try
         {
-            var json = await ia.GerarJsonAsync(prompts.Montar(PromptStore.Redigir, Base()), [("user", conteudo)], SchemaEstrutura, 0.3, ct);
+            var json = await ia.GerarJsonAsync(prompts.Montar(PromptStore.Redigir, Base()), [("user", conteudo)], SchemaEstrutura, 0.3, ct, anexos);
             return json.Deserialize<EstruturaRelatorio>(JsonIA.Opcoes);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -199,7 +240,7 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
     // ------------------------------------------------------------ Prompt 4: responder
 
     public async Task<(string? resposta, List<string> sugestoes)> ResponderAsync(string pergunta, IReadOnlyList<MensagemChat> historico,
-        IReadOnlyList<ResultadoConsulta> resultados, CancellationToken ct)
+        IReadOnlyList<ResultadoConsulta> resultados, CancellationToken ct, IReadOnlyList<AnexoConteudo>? anexos = null)
     {
         if (ia == null) return (null, []);
         var sistema = prompts.Montar(PromptStore.Responder, Base()) +
@@ -207,7 +248,7 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
         try
         {
             var conversa = historico.TakeLast(6).Select(h => (h.Papel, h.Texto)).Append(("user", pergunta));
-            var json = await ia.GerarJsonAsync(sistema, conversa, SchemaResposta, 0.2, ct);
+            var json = await ia.GerarJsonAsync(sistema, conversa, SchemaResposta, 0.2, ct, anexos);
             var sugestoes = json.TryGetProperty("sugestoes", out var s) && s.ValueKind == JsonValueKind.Array
                 ? s.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : [];
             return (json.GetProperty("resposta").GetString(), sugestoes);
@@ -353,10 +394,22 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
                                 }
                             },
                             required = new[] { "consultaId", "titulo", "colunas", "linhaTotal" }
+                        },
+                        // Tabela transcrita de um ARQUIVO ANEXADO (valores como estão no arquivo)
+                        ["tabelaAnexo"] = new
+                        {
+                            type = "OBJECT", nullable = true,
+                            properties = new Dictionary<string, object>
+                            {
+                                ["titulo"] = Str(), ["fonte"] = Str(),
+                                ["cabecalho"] = new { type = "ARRAY", items = new { type = "STRING" } },
+                                ["linhas"] = new { type = "ARRAY", items = new { type = "ARRAY", items = new { type = "STRING" } } }
+                            },
+                            required = new[] { "titulo", "fonte", "cabecalho", "linhas" }
                         }
                     },
                     required = new[] { "titulo", "textoAntes", "textoDepois" },
-                    propertyOrdering = new[] { "titulo", "textoAntes", "tabela", "grafico", "textoDepois" }
+                    propertyOrdering = new[] { "titulo", "textoAntes", "tabela", "tabelaAnexo", "grafico", "textoDepois" }
                 }
             }
         },
