@@ -8,17 +8,8 @@
 **/appsettings.*.local.json
 .env
 
-# Gerados em execução da demonstração (relatórios, brasões baixados, tela compilada)
-demo/api/relatorios/
-demo/api/brasoes/
-demo/api/wwwroot/
-
-# Demonstração Angular
-demo/web/node_modules/
-demo/web/dist/
-demo/web/.angular/
-# atalho (junction) para frontend/chat-relatorio, criado pelo vincular-tela.js
-demo/web/src/app/chat-relatorio
+# Demonstração local (API, tela de teste e testes automáticos): fica só no computador, não vai para o Git
+demo/
 
 # IDE / sistema
 .vs/

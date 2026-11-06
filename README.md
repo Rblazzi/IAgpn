@@ -13,9 +13,9 @@ chat-relatorio/
 │   └── appsettings.example.json       modelo da configuração (sem senha nem chave)
 ├── frontend/
 │   └── chat-relatorio/              ★ VAI PARA O PAINEL: a tela do chat (componente, serviço, tela pronta)
-├── demo/                            só para rodar e testar aqui — NÃO vai para o painel
+├── demo/                            só no computador de desenvolvimento (fora do Git) — NÃO vai para o painel
 │   ├── api/                           API de demonstração (referencia backend/AssistenteRelatorios)
-│   ├── web/                           Angular de demonstração (usa frontend/chat-relatorio)
+│   ├── web/                           tela de teste: só o chat (usa frontend/chat-relatorio)
 │   └── tests/                         testes automáticos contra o Tcudb
 ├── INTEGRACAO.md                    passo a passo para colocar no painel
 └── README.md

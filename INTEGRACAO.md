@@ -9,7 +9,7 @@ não roda migrations e só **lê** o banco.
 | Back-end | `backend/AssistenteRelatorios/` (sem `bin/` e `obj/`) | ao lado do projeto da API do painel, na mesma solução |
 | Front-end | `frontend/chat-relatorio/` | dentro do módulo Angular onde fica a tela nova (qualquer pasta de `src/app/`) |
 
-A pasta `demo/` (API e Angular de demonstração e os testes) é só para rodar e testar aqui: **não vai para o painel**.
+A pasta `demo/` (API e tela de teste e os testes automáticos) fica só no computador de desenvolvimento, fora do Git: **não vai para o painel**.
 
 ---
 

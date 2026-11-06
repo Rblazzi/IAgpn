@@ -15,7 +15,7 @@ import { ChatRelatorioComponent } from './chat-relatorio.component';
   template: `<app-chat-relatorio [municipio]="municipio() ?? null" />`,
   styles: [`
     :host { display: block; padding: 12px 8px; }
-    app-chat-relatorio { --chat-altura: calc(100vh - 120px); }
+    app-chat-relatorio { --chat-altura: calc(100vh - 24px); }
   `],
 })
 export class PaginaRelatoriosIaComponent {
