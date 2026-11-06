@@ -120,7 +120,7 @@ public class RenderizadorPdf(IOptions<RelatorioOptions> opt)
                     pi.Format.LineSpacingRule = LineSpacingRule.Single;
                     pi.Format.SpaceAfter = 0;
                     var img = pi.AddImage("base64:" + jpegs[graf]);
-                    img.Width = Unit.FromCentimeter(16);
+                    img.Width = Unit.FromCentimeter(graf.LarguraCm);
                     img.LockAspectRatio = true;
                     if (graf.Nota != null)
                     {

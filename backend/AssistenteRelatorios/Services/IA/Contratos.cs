@@ -148,8 +148,17 @@ public class SecaoRelatorio
     public TabelaPlanejada? Tabela { get; set; }
     /// <summary>Tabela transcrita de um arquivo anexado (valores exatamente como no arquivo).</summary>
     public TabelaAnexo? TabelaAnexo { get; set; }
+    /// <summary>Imagem (foto/print) anexada pelo usuário, inserida no documento como está.</summary>
+    public ImagemAnexo? ImagemAnexo { get; set; }
     public GraficoPlanejado? Grafico { get; set; }
     public string TextoDepois { get; set; } = "";
+}
+
+/// <summary>Imagem anexada a inserir na seção: nome do arquivo (como foi anexado) e a legenda.</summary>
+public class ImagemAnexo
+{
+    public string Arquivo { get; set; } = "";
+    public string Legenda { get; set; } = "";
 }
 
 /// <summary>Tabela copiada pela IA de um arquivo anexado (o banco não tem esses dados).</summary>

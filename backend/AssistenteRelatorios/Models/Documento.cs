@@ -63,7 +63,12 @@ public record Paragrafo(string Texto, bool Negrito, bool Italico, Alinhamento Al
 public record QuebraPagina : Bloco;
 
 /// <summary>Gráfico já desenhado (PNG). Proporcao = altura / largura; a largura ocupa a área útil da página.</summary>
-public record GraficoDoc(string Titulo, byte[] Png, double Proporcao, string? Nota = null) : Bloco;
+public record GraficoDoc(string Titulo, byte[] Png, double Proporcao, string? Nota = null) : Bloco
+{
+    /// <summary>Largura na página: 16 cm (área útil); imagens altas (fotos em pé) diminuem para ter no máximo 20 cm de altura.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public double LarguraCm => Proporcao > 1.25 ? Math.Round(20.0 / Proporcao, 2) : 16.0;
+}
 
 /// <summary>Tabela já formatada (texto). Larguras em % (somam 100).</summary>
 public record TabelaDoc : Bloco

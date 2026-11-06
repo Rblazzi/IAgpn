@@ -413,6 +413,13 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
                             },
                             required = new[] { "consultaId", "titulo", "colunas", "linhaTotal" }
                         },
+                        // IMAGEM ANEXADA (foto/print) inserida no documento como está
+                        ["imagemAnexo"] = new
+                        {
+                            type = "OBJECT", nullable = true,
+                            properties = new Dictionary<string, object> { ["arquivo"] = Str(), ["legenda"] = Str() },
+                            required = new[] { "arquivo", "legenda" }
+                        },
                         // Tabela transcrita de um ARQUIVO ANEXADO (valores como estão no arquivo)
                         ["tabelaAnexo"] = new
                         {
@@ -427,7 +434,7 @@ public class AssistenteRelatorios(IEnumerable<IModeloIA> modelos, AssistenteLoca
                         }
                     },
                     required = new[] { "titulo", "textoAntes", "textoDepois" },
-                    propertyOrdering = new[] { "titulo", "textoAntes", "tabela", "tabelaAnexo", "grafico", "textoDepois" }
+                    propertyOrdering = new[] { "titulo", "textoAntes", "imagemAnexo", "tabela", "tabelaAnexo", "grafico", "textoDepois" }
                 }
             }
         },

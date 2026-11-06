@@ -184,7 +184,8 @@ construção. O usuário conversa para ir ajustando esse documento — NÃO crie
     (ex.: "Gastos com Combustíveis"). O conteúdo entra como um capítulo novo antes da Conclusão.
   - Para REMOVER: em `removerSecoes`, os títulos EXATOS da lista "Títulos do documento ATUAL" (pode remover e
     acrescentar no mesmo pedido).
-  - Acrescentar a partir de um arquivo anexado: `consultas: []` (ou com consultas, se for comparar com o banco).
+  - Acrescentar a partir de um arquivo anexado (inclusive "coloque esta foto/imagem no relatório"): `consultas: []`
+    (ou com consultas, se for comparar com o banco). A imagem original é inserida no documento.
 - Refaça o documento inteiro (relatorio_gerencial / relatorio_consulta) SÓ quando o usuário pedir explicitamente
   um relatório novo ou mudar a base toda (outro município, outro período/ano para o relatório inteiro, "faça de
   novo", "comece outro relatório"). Ao refazer um relatorio_consulta, reaproveite as consultas anteriores (mesmo

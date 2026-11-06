@@ -80,7 +80,8 @@ Passo a passo em **[INTEGRACAO.md](INTEGRACAO.md)**. Resumo:
    Um relatório novo só é gerado quando o usuário pede outro relatório ou muda a base (município, período do relatório).
 11. **Anexos (📎)** (`Services/Anexos.cs`): o usuário anexa até 5 arquivos por pedido. Word, Excel, CSV e TXT viram texto;
    PDF e imagens vão inteiros para o Gemini ler. A extensão é conferida com o conteúdo do arquivo. A IA pode transcrever
-   tabelas do arquivo (`tabelaAnexo`), que recebem o mesmo padrão (coluna % e linha TOTAL), a nota "Fonte: arquivo anexado"
+   imagens anexadas (fotos/prints) no documento como estão (`imagemAnexo`: orientação do celular corrigida, até 1600 px, JPEG,
+   legenda e "Fonte: imagem anexada") e transcrever tabelas do arquivo (`tabelaAnexo`), que recebem o mesmo padrão (coluna % e linha TOTAL), a nota "Fonte: arquivo anexado"
    e gráfico; cada valor transcrito é conferido com o arquivo e com o banco (o que não bate gera aviso). Os anexos ficam em
    `relatorios/anexos/` e são apagados junto com os relatórios antigos.
 12. **Comparativo entre anos:** anos no cabeçalho, % de evolução entre anos seguidos e "TOTAL %"; com mais de 4 anos a

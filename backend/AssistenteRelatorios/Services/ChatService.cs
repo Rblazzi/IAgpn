@@ -210,7 +210,8 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                 var avisos = resultados.Where(r => !r.Ok).Select(r => $"A consulta \"{r.Objetivo}\" não pôde ser executada.").ToList();
                 if (avisoProjecao != null) avisos.Add(avisoProjecao);
                 // Nota de método da projeção: curta, na conclusão (pedido da gerência — sem destaque no início do relatório)
-                var (doc, naoConferidos) = consulta.Montar(estrutura, plano, resultados, municipio, avisos, notaProjecao, anexos);
+                var (doc, naoConferidos) = consulta.Montar(estrutura, plano, resultados, municipio, avisos, notaProjecao, anexos,
+                    ImagensPedidas(req, anexos));
                 if (naoConferidos.Count > 0)
                     log.LogWarning("Valores citados pela IA não encontrados nos resultados: {Valores}", string.Join(", ", naoConferidos));
 
@@ -439,7 +440,8 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
                             ?? EstruturaPadrao(plano, resultados);
             sugestoesIa = estrutura.Sugestoes;
             var avisos = resultados.Where(r => !r.Ok).Select(r => $"A consulta \"{r.Objetivo}\" não pôde ser executada.").ToList();
-            var (parte, naoConferidos) = consulta.Montar(estrutura, plano, resultados, doc.Municipio, avisos, null, anexosNovos);
+            var (parte, naoConferidos) = consulta.Montar(estrutura, plano, resultados, doc.Municipio, avisos, null, anexosNovos,
+                ImagensPedidas(req, anexosNovos));
             MontadorConsulta.Acrescentar(doc, parte);
             feito.Add($"• Acrescentado: **{estrutura.Titulo}** ({Plural(estrutura.Secoes.Count, "seção", "seções")}, " +
                       $"{Plural(parte.Blocos.OfType<TabelaDoc>().Count(), "tabela", "tabelas")} e " +
@@ -535,6 +537,19 @@ public class ChatService(AssistenteRelatorios ia, CalculadoraRelatorio calc, Exe
 
     static string SemAcento(string s) => new(s.Normalize(System.Text.NormalizationForm.FormD)
         .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray());
+
+    /// <summary>
+    /// Imagens anexadas NESTE pedido que o usuário pediu para colocar no documento ("coloque a foto", "insira a imagem"):
+    /// entram mesmo que a IA não as posicione.
+    /// </summary>
+    static List<string> ImagensPedidas(ChatRequest req, IEnumerable<AnexoConteudo> anexos)
+    {
+        var p = SemAcento(req.Mensagem.ToLowerInvariant());
+        if (!System.Text.RegularExpressions.Regex.IsMatch(p, @"foto|imagem|imagens|figura|print|captura|anexo|arquivo") ||
+            !System.Text.RegularExpressions.Regex.IsMatch(p, @"coloc|insir|inser|inclu|adicion|ponh|acrescent|anex|junt|mostr"))
+            return [];
+        return anexos.Where(a => a.Mime?.StartsWith("image/") == true && req.Anexos?.Contains(a.Id) == true).Select(a => a.Nome).ToList();
+    }
 
     /// <summary>O pedido fala de projeção/previsão/estimativa futura?</summary>
     public static bool PedeProjecao(string pedido) =>

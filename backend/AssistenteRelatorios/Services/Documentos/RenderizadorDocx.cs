@@ -149,7 +149,8 @@ public class RenderizadorDocx(IOptions<RelatorioOptions> opt)
         body.Append(P(R(g.Titulo, negrito: true, tamanho: 18), JustificationValues.Center, antes: 240, depois: 60, manterProximo: true));
 
         const long emuPorCm = 360000;
-        long cx = (long)(16.0 * emuPorCm), cy = (long)(16.0 * g.Proporcao * emuPorCm);
+        var largura = g.LarguraCm;   // 16 cm; imagens em pé ficam mais estreitas para caber na página
+        long cx = (long)(largura * emuPorCm), cy = (long)(largura * g.Proporcao * emuPorCm);
         var desenho = Imagem(main, g.Png, cx, cy, id, g.Titulo);
 
         body.Append(new Paragraph(
@@ -163,7 +164,8 @@ public class RenderizadorDocx(IOptions<RelatorioOptions> opt)
     /// <summary>PNG embutido inline (tamanho em EMU).</summary>
     static Drawing Imagem(MainDocumentPart main, byte[] png, long cx, long cy, uint id, string descricao)
     {
-        var img = main.AddImagePart(ImagePartType.Png);
+        // Gráficos e capa são PNG; fotos anexadas vão em JPEG (bem menores)
+        var img = main.AddImagePart(png.Length > 2 && png[0] == 0xFF && png[1] == 0xD8 ? ImagePartType.Jpeg : ImagePartType.Png);
         using (var ms = new MemoryStream(png)) img.FeedData(ms);
         var relId = main.GetIdOfPart(img);
         return new Drawing(

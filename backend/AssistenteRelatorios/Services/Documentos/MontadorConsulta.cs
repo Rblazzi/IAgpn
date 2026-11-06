@@ -18,7 +18,7 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
     /// <param name="anexos">Arquivos anexados ao pedido: os números do texto deles também contam como "conferidos".</param>
     public (Documento doc, List<string> naoConferidos) Montar(EstruturaRelatorio e, Plano plano,
         IReadOnlyList<ResultadoConsulta> resultados, string municipio, IEnumerable<string> avisos, string? notaConclusao = null,
-        IReadOnlyList<AnexoConteudo>? anexos = null)
+        IReadOnlyList<AnexoConteudo>? anexos = null, IReadOnlyCollection<string>? imagensObrigatorias = null)
     {
         var doc = new Documento
         {
@@ -90,9 +90,32 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
             foreach (var linha in tab.Linhas) foreach (var c in linha) numerosDisponiveis.Add(c.Replace("R$", "").Trim(' ', '(', ')', '%'));
         }
 
+        // Imagens anexadas (fotos/prints) entram no documento como estão
+        var imagens = (anexos ?? []).Where(a => a.Mime?.StartsWith("image/") == true && a.Dados is not null).ToList();
+        AnexoConteudo? AcharImagem(string? nome) =>
+            imagens.FirstOrDefault(a => string.Equals(a.Nome, nome?.Trim(), StringComparison.OrdinalIgnoreCase))
+            ?? imagens.FirstOrDefault(a => !string.IsNullOrWhiteSpace(nome) &&
+                   (a.Nome.Contains(nome.Trim(), StringComparison.OrdinalIgnoreCase) || nome.Contains(Path.GetFileNameWithoutExtension(a.Nome), StringComparison.OrdinalIgnoreCase)))
+            ?? (imagens.Count == 1 ? imagens[0] : null);
+        var usadas = new HashSet<string>();
+        void InserirImagem(AnexoConteudo a, string? legenda)
+        {
+            if (!usadas.Add(a.Id)) return;
+            var (bytes, prop) = ImagemParaDocumento(a.Dados!);
+            if (bytes is null) return;
+            doc.Blocos.Add(new GraficoDoc((string.IsNullOrWhiteSpace(legenda) ? Path.GetFileNameWithoutExtension(a.Nome) : legenda).ToUpper(Fmt.PtBr),
+                bytes, prop, $"Fonte: imagem anexada — {a.Nome}."));
+        }
+        // Pedido explícito de "colocar a foto": as imagens que a IA não posicionou entram na 1ª seção
+        var pendentes = (imagensObrigatorias ?? []).Select(n => imagens.FirstOrDefault(a => a.Nome == n)).OfType<AnexoConteudo>()
+            .Where(a => !e.Secoes.Any(s => s.ImagemAnexo is { } im && AcharImagem(im.Arquivo)?.Id == a.Id)).ToList();
+
         foreach (var s in e.Secoes)
         {
             doc.T2(s.Titulo).Textos(s.TextoAntes);
+            if (s.ImagemAnexo is { } ima && AcharImagem(ima.Arquivo) is { } img) InserirImagem(img, ima.Legenda);
+            foreach (var p in pendentes) InserirImagem(p, null);
+            pendentes.Clear();
             if (s.Tabela is { } t)
             {
                 if (porId.TryGetValue(t.ConsultaId, out var r) && r.Ok)
@@ -160,6 +183,43 @@ public partial class MontadorConsulta(IOptions<RelatorioOptions> opt)
     }
 
     [GeneratedRegex(@"\d{1,3}(?:\.\d{3})*,\d{2}")] private static partial Regex RegexNumeroBr();
+
+    /// <summary>
+    /// Foto/print anexado → JPEG para o documento: corrige a orientação gravada pelo celular (EXIF), reduz para no
+    /// máximo 1600 px no lado maior e devolve a proporção (altura/largura). Null se não for uma imagem válida.
+    /// </summary>
+    public static (byte[]? jpeg, double proporcao) ImagemParaDocumento(byte[] dados)
+    {
+        using var codec = SkiaSharp.SKCodec.Create(new MemoryStream(dados));
+        if (codec is null) return (null, 0);
+        using var original = SkiaSharp.SKBitmap.Decode(codec);
+        if (original is null) return (null, 0);
+        var giro = codec.EncodedOrigin switch
+        {
+            SkiaSharp.SKEncodedOrigin.RightTop => 90,
+            SkiaSharp.SKEncodedOrigin.BottomRight => 180,
+            SkiaSharp.SKEncodedOrigin.LeftBottom => 270,
+            _ => 0
+        };
+        int w = giro is 90 or 270 ? original.Height : original.Width, h = giro is 90 or 270 ? original.Width : original.Height;
+        var escala = Math.Min(1.0, 1600.0 / Math.Max(w, h));
+        int lw = Math.Max(1, (int)(w * escala)), lh = Math.Max(1, (int)(h * escala));
+        using var destino = new SkiaSharp.SKBitmap(lw, lh);
+        using (var c = new SkiaSharp.SKCanvas(destino))
+        {
+            c.Clear(SkiaSharp.SKColors.White);
+            c.Translate(lw / 2f, lh / 2f);
+            c.RotateDegrees(giro);
+            var (dw, dh) = giro is 90 or 270 ? (lh, lw) : (lw, lh);
+            using var pintura = new SkiaSharp.SKPaint { IsAntialias = true };
+            using var imagem = SkiaSharp.SKImage.FromBitmap(original);
+            c.DrawImage(imagem, new SkiaSharp.SKRect(-dw / 2f, -dh / 2f, dw / 2f, dh / 2f),
+                new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Linear, SkiaSharp.SKMipmapMode.Linear), pintura);
+        }
+        using var final = SkiaSharp.SKImage.FromBitmap(destino);
+        using var jpg = final.Encode(SkiaSharp.SKEncodedImageFormat.Jpeg, 88);
+        return (jpg.ToArray(), (double)lh / lw);
+    }
 
     // ------------------------------------------------------------ edição de um documento já gerado
 
